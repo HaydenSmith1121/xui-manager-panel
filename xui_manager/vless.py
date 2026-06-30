@@ -67,8 +67,8 @@ def validate_target_nodes(nodes: Sequence[Mapping[str, Any]]) -> tuple[float, st
     for item in nodes:
         if item.get("mode") != "managed":
             raise ValueError("managed target requires mode='managed'")
-        panel_id = _positive_int(item.get("panel_id"), "panel_id")
-        inbound_id = _positive_int(item.get("inbound_id"), "inbound_id")
+        panel_id = positive_int(item.get("panel_id"), "panel_id")
+        inbound_id = positive_int(item.get("inbound_id"), "inbound_id")
         target = (panel_id, inbound_id)
         if expected_target is None:
             expected_target = target
@@ -105,8 +105,8 @@ def eligible_managed_nodes(nodes, allowed_tags) -> list[dict[str, Any]]:
 def group_managed_targets(nodes) -> dict[tuple[int, int], list[dict[str, Any]]]:
     grouped: dict[tuple[int, int], list[dict[str, Any]]] = {}
     for item in nodes:
-        panel_id = _positive_int(item.get("panel_id"), "panel_id")
-        inbound_id = _positive_int(item.get("inbound_id"), "inbound_id")
+        panel_id = positive_int(item.get("panel_id"), "panel_id")
+        inbound_id = positive_int(item.get("inbound_id"), "inbound_id")
         grouped.setdefault((panel_id, inbound_id), []).append(dict(item))
     for target_nodes in grouped.values():
         validate_target_nodes(target_nodes)
@@ -121,11 +121,20 @@ def _tag_set(value: Any) -> set[str]:
     return {str(tag).strip() for tag in value if str(tag).strip()}
 
 
-def _positive_int(value: Any, name: str) -> int:
-    try:
+def positive_int(value: Any, name: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{name} is required")
+    if isinstance(value, int):
+        number = value
+    elif isinstance(value, float):
+        if not math.isfinite(value) or not value.is_integer():
+            raise ValueError(f"{name} must be positive")
         number = int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{name} is required") from exc
+    else:
+        try:
+            number = int(value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(f"{name} is required") from exc
     if number <= 0:
         raise ValueError(f"{name} must be positive")
     return number

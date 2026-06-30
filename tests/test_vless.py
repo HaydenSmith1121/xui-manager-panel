@@ -120,6 +120,12 @@ class ManagedNodeHelperTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "positive"):
                     validate_target_nodes([node(rate=rate)])
 
+    def test_target_rejects_non_finite_inbound_ids(self):
+        for inbound_id in (float("inf"), "inf"):
+            with self.subTest(inbound_id=inbound_id):
+                with self.assertRaisesRegex(ValueError, "inbound_id"):
+                    validate_target_nodes([node(inbound_id=inbound_id)])
+
     def test_target_rejects_conflicting_flows(self):
         with self.assertRaisesRegex(ValueError, "same flow"):
             validate_target_nodes(
@@ -196,6 +202,8 @@ class ManagedNodeDatabaseValidationTests(unittest.TestCase):
         cases = [
             ({"panel_id": None}, "panel_id"),
             ({"inbound_id": 0}, "inbound_id"),
+            ({"inbound_id": -1}, "inbound_id"),
+            ({"inbound_id": "not-int"}, "inbound_id"),
             ({"source_url": "trojan://old@example.com:443"}, "VLESS"),
             ({"source_url": "vless://old@example.com"}, "port"),
             ({"rate": 0}, "positive"),
@@ -211,6 +219,12 @@ class ManagedNodeDatabaseValidationTests(unittest.TestCase):
             with self.subTest(rate=rate):
                 with self.assertRaisesRegex(ValueError, "positive"):
                     self.create_managed_node(rate=rate)
+
+    def test_create_managed_node_rejects_non_finite_inbound_id_with_friendly_error(self):
+        for inbound_id in ("inf", float("inf")):
+            with self.subTest(inbound_id=inbound_id):
+                with self.assertRaisesRegex(ValueError, "inbound_id"):
+                    self.create_managed_node(inbound_id=inbound_id)
 
     def test_create_enabled_managed_node_rejects_enabled_sibling_rate_conflict(self):
         self.create_managed_node(rate=1)

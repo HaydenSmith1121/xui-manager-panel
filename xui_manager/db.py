@@ -11,7 +11,7 @@ from typing import Any
 
 from .auth import hash_password, verify_password
 from .billing import bytes_from_gb
-from .vless import parse_vless_template, positive_finite_float, validate_target_nodes
+from .vless import parse_vless_template, positive_finite_float, positive_int, validate_target_nodes
 
 
 class Database:
@@ -900,18 +900,8 @@ class Database:
 
         if panel_id is None:
             raise ValueError("panel_id is required")
-        try:
-            panel_id = int(panel_id)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("panel_id is required") from exc
-        if panel_id <= 0:
-            raise ValueError("panel_id must be positive")
-        try:
-            inbound_id = int(inbound_id)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("inbound_id is required") from exc
-        if inbound_id <= 0:
-            raise ValueError("inbound_id must be positive")
+        panel_id = positive_int(panel_id, "panel_id")
+        inbound_id = positive_int(inbound_id, "inbound_id")
         rate = positive_finite_float(rate, "rate")
 
         parse_vless_template(source_url)
