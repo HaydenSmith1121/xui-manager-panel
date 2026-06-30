@@ -600,6 +600,7 @@ class Database:
             rows = conn.execute(
                 """
                 select usage_records.*, nodes.rate, nodes.name as node_name
+                    , nodes.mode
                 from usage_records
                 join nodes on nodes.id=usage_records.node_id
                 where usage_records.user_id=?

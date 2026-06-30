@@ -8,7 +8,7 @@ import urllib.parse
 from dataclasses import dataclass, field
 from typing import Any
 
-from .billing import calculate_billable_usage
+from .billing import usage_totals
 
 
 SHARE_LINK_RE = re.compile(r"(?im)\b(vless|vmess|trojan|ss)://[^\s]+")
@@ -28,8 +28,8 @@ def build_clash_subscription(db: Any, token: str) -> Response:
     if user["status"] != "active":
         return subscription_response([], 0, user.get("quota_bytes", 0), user.get("expire_at", 0), "Account inactive")
 
-    usage_items = db.usage_for_user(user["id"])
-    used = calculate_billable_usage(usage_items)
+    totals = usage_totals(db, user["id"])
+    used = totals["upload"] + totals["download"]
     quota = int(user.get("quota_bytes", 0) or 0)
     expire_at = int(user.get("expire_at", 0) or 0)
     if quota and used >= quota:
