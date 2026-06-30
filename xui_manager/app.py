@@ -15,6 +15,7 @@ from .db import Database
 from .provisioning import ProvisioningService
 from .subscription import Response, build_clash_subscription
 from .usage_sync import UsageSyncService
+from .worker import PeriodicSyncWorker
 from .xui_api import XuiClient
 
 
@@ -359,7 +360,12 @@ def run() -> None:
     port = int(os.environ.get("LISTEN_PORT", "25888"))
     server = ThreadingHTTPServer((host, port), make_handler(app))
     print(f"xui-manager-panel listening on {host}:{port}")
-    server.serve_forever()
+    worker = PeriodicSyncWorker(app.usage_sync, lambda: app.db.get_setting("sync_interval_seconds", "300"))
+    worker.start()
+    try:
+        server.serve_forever()
+    finally:
+        worker.stop()
 
 
 if __name__ == "__main__":
