@@ -81,7 +81,7 @@ class XuiClient:
         expire_at: int,
     ) -> dict[str, Any]:
         client = self._vless_client(client_uuid, email, flow, expire_at, True)
-        return self._mutate_vless_client("panel/api/inbounds/addClient", inbound_id, client, email)
+        return self._mutate_vless_client("panel/api/inbounds/addClient", inbound_id, client, email, modern_action="add")
 
     def update_vless_client(
         self,
@@ -94,7 +94,13 @@ class XuiClient:
         enabled: bool,
     ) -> dict[str, Any]:
         client = self._vless_client(client_uuid, email, flow, expire_at, enabled)
-        return self._mutate_vless_client(f"panel/api/inbounds/updateClient/{client_uuid}", inbound_id, client, email)
+        return self._mutate_vless_client(
+            f"panel/api/inbounds/updateClient/{client_uuid}",
+            inbound_id,
+            client,
+            email,
+            modern_action="update",
+        )
 
     def client_traffic(self, email: str) -> dict[str, int]:
         target = email.strip().lower()
@@ -161,20 +167,64 @@ class XuiClient:
             raise XuiApiError(self._sanitize(message))
         return payload
 
-    def _mutate_vless_client(self, path: str, inbound_id: int, client: dict[str, Any], email: str) -> dict[str, Any]:
+    def _mutate_vless_client(
+        self,
+        path: str,
+        inbound_id: int,
+        client: dict[str, Any],
+        email: str,
+        *,
+        modern_action: str,
+    ) -> dict[str, Any]:
         form = urllib.parse.urlencode(
             {
                 "id": str(int(inbound_id)),
                 "settings": json.dumps({"clients": [client]}, separators=(",", ":")),
             }
         ).encode("utf-8")
-        response = self._request(path, data=form, headers={"Content-Type": "application/x-www-form-urlencoded"})
+        try:
+            response = self._request(path, data=form, headers={"Content-Type": "application/x-www-form-urlencoded"})
+        except XuiApiError as exc:
+            if "HTTP 404" not in str(exc):
+                raise
+            return self._mutate_vless_client_modern(modern_action, inbound_id, client, email)
         self._parse_payload(response, "x-ui client mutation failed", allow_empty=True)
+        return self._verified_client(inbound_id, client, email)
+
+    def _mutate_vless_client_modern(
+        self,
+        action: str,
+        inbound_id: int,
+        client: dict[str, Any],
+        email: str,
+    ) -> dict[str, Any]:
+        modern_client = self._modern_client_payload(client)
+        if action == "add":
+            path = "panel/api/clients/add"
+            payload: dict[str, Any] = {"client": modern_client, "inboundIds": [int(inbound_id)]}
+        elif action == "update":
+            quoted_email = urllib.parse.quote(email, safe="")
+            query = urllib.parse.urlencode({"inboundIds": str(int(inbound_id))})
+            path = f"panel/api/clients/update/{quoted_email}?{query}"
+            payload = modern_client
+        else:
+            raise XuiApiError("unsupported x-ui client mutation")
+        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        response = self._request(path, data=body, headers={"Content-Type": "application/json"})
+        self._parse_payload(response, "x-ui client mutation failed", allow_empty=True)
+        return self._verified_client(inbound_id, client, email)
+
+    def _verified_client(self, inbound_id: int, client: dict[str, Any], email: str) -> dict[str, Any]:
         inbound = self.get_inbound(inbound_id)
         stored = self.find_client(inbound, email)
         if not stored or stored.get("id") != client["id"]:
             raise XuiApiError("x-ui client mutation could not be verified")
         return stored
+
+    def _modern_client_payload(self, client: dict[str, Any]) -> dict[str, Any]:
+        modern = dict(client)
+        modern["tgId"] = int(modern.get("tgId") or 0)
+        return modern
 
     def _vless_client(self, client_uuid: str, email: str, flow: str, expire_at: int, enabled: bool) -> dict[str, Any]:
         return {

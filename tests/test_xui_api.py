@@ -153,6 +153,42 @@ class XuiClientTests(unittest.TestCase):
         self.assertEqual(created["id"], UUID)
         self.assertNotIn("secret", repr(client))
 
+    def test_add_vless_client_falls_back_to_modern_clients_api_after_legacy_404(self):
+        stored = client_record()
+        opener = fake_opener(
+            [
+                urllib.error.HTTPError(
+                    BASE + "panel/api/inbounds/addClient",
+                    404,
+                    "Not Found",
+                    {},
+                    io.BytesIO(b"not found"),
+                ),
+                api_response({"success": True, "msg": "", "obj": None}),
+                api_response({"success": True, "msg": "", "obj": inbound_with_clients(stored)}),
+            ]
+        )
+        client = XuiClient(BASE, "admin", "secret", opener=opener)
+
+        created = client.add_vless_client(
+            inbound_id=1,
+            client_uuid=UUID,
+            email=EMAIL,
+            flow="xtls-rprx-vision",
+            expire_at=1_800_000_000,
+        )
+
+        modern_request = opener.requests[1][0]
+        payload = json.loads(modern_request.data.decode("utf-8"))
+        self.assertEqual(request_path(opener.requests[0][0]), "panel/api/inbounds/addClient")
+        self.assertEqual(request_path(modern_request), "panel/api/clients/add")
+        self.assertEqual(modern_request.headers["Content-type"], "application/json")
+        self.assertEqual(payload["inboundIds"], [1])
+        self.assertEqual(payload["client"]["id"], UUID)
+        self.assertEqual(payload["client"]["email"], EMAIL)
+        self.assertEqual(payload["client"]["tgId"], 0)
+        self.assertEqual(created["id"], UUID)
+
     def test_update_vless_client_posts_form_and_verifies_by_readback(self):
         stored = client_record(flow="", expire_ms=0, enabled=False)
         opener = fake_opener(
@@ -181,6 +217,42 @@ class XuiClientTests(unittest.TestCase):
         self.assertEqual(opener.requests[2][0].headers["X-csrf-token"], "csrf-token-123")
         self.assertEqual(form["id"], ["1"])
         self.assertEqual(settings["clients"], [stored])
+        self.assertEqual(updated["enable"], False)
+
+    def test_update_vless_client_falls_back_to_modern_clients_api_after_legacy_404(self):
+        stored = client_record(flow="", expire_ms=0, enabled=False)
+        opener = fake_opener(
+            [
+                urllib.error.HTTPError(
+                    BASE + f"panel/api/inbounds/updateClient/{UUID}",
+                    404,
+                    "Not Found",
+                    {},
+                    io.BytesIO(b"not found"),
+                ),
+                api_response({"success": True, "msg": "", "obj": None}),
+                api_response({"success": True, "msg": "", "obj": inbound_with_clients(stored)}),
+            ]
+        )
+        client = XuiClient(BASE, "admin", "secret", opener=opener)
+
+        updated = client.update_vless_client(
+            inbound_id=1,
+            client_uuid=UUID,
+            email=EMAIL,
+            flow="",
+            expire_at=0,
+            enabled=False,
+        )
+
+        modern_request = opener.requests[1][0]
+        payload = json.loads(modern_request.data.decode("utf-8"))
+        self.assertEqual(request_path(opener.requests[0][0]), f"panel/api/inbounds/updateClient/{UUID}")
+        self.assertEqual(request_path(modern_request), f"panel/api/clients/update/{EMAIL}")
+        self.assertEqual(urllib.parse.urlparse(modern_request.full_url).query, "inboundIds=1")
+        self.assertEqual(payload["id"], UUID)
+        self.assertEqual(payload["email"], EMAIL)
+        self.assertEqual(payload["enable"], False)
         self.assertEqual(updated["enable"], False)
 
     def test_empty_mutation_response_is_verified_by_readback(self):
