@@ -88,10 +88,25 @@ def request_form(request):
 
 
 class XuiClientTests(unittest.TestCase):
+    def test_login_fetches_csrf_token_and_sends_header(self):
+        opener = fake_opener(
+            [
+                api_response({"success": True, "obj": "csrf-token-123"}),
+                api_response({"success": True, "msg": "", "obj": None}),
+            ]
+        )
+        client = XuiClient(BASE, "admin", "secret", opener=opener)
+
+        client.login()
+
+        self.assertEqual([request_path(req) for req, _ in opener.requests], ["csrf-token", "login"])
+        self.assertEqual(opener.requests[1][0].headers["X-csrf-token"], "csrf-token-123")
+
     def test_successful_login_list_and_get_inbound(self):
         inbound = inbound_with_clients(client_record(), stats=[{"email": EMAIL, "up": 10, "down": 20}])
         opener = fake_opener(
             [
+                api_response({"success": True, "obj": "csrf-token-123"}),
                 api_response({"success": True, "msg": "", "obj": None}),
                 api_response({"success": True, "msg": "", "obj": [inbound]}),
                 api_response({"success": True, "msg": "", "obj": inbound}),
@@ -103,7 +118,7 @@ class XuiClientTests(unittest.TestCase):
         inbounds = client.list_inbounds()
         fetched = client.get_inbound(1)
 
-        self.assertEqual([request_path(req) for req, _ in opener.requests], ["login", "panel/api/inbounds/list", "panel/api/inbounds/get/1"])
+        self.assertEqual([request_path(req) for req, _ in opener.requests], ["csrf-token", "login", "panel/api/inbounds/list", "panel/api/inbounds/get/1"])
         self.assertEqual(inbounds[0]["id"], 1)
         self.assertEqual(fetched["remark"], "primary")
         self.assertEqual(client.find_client(fetched, EMAIL)["id"], UUID)
@@ -112,6 +127,7 @@ class XuiClientTests(unittest.TestCase):
         stored = client_record()
         opener = fake_opener(
             [
+                api_response({"success": True, "obj": "csrf-token-123"}),
                 api_response({"success": True, "msg": "", "obj": None}),
                 api_response({"success": True, "msg": "", "obj": None}),
                 api_response({"success": True, "msg": "", "obj": inbound_with_clients(stored)}),
@@ -128,9 +144,10 @@ class XuiClientTests(unittest.TestCase):
             expire_at=1_800_000_000,
         )
 
-        form = request_form(opener.requests[1][0])
+        form = request_form(opener.requests[2][0])
         settings = json.loads(form["settings"][0])
-        self.assertEqual(request_path(opener.requests[1][0]), "panel/api/inbounds/addClient")
+        self.assertEqual(request_path(opener.requests[2][0]), "panel/api/inbounds/addClient")
+        self.assertEqual(opener.requests[2][0].headers["X-csrf-token"], "csrf-token-123")
         self.assertEqual(form["id"], ["1"])
         self.assertEqual(settings["clients"], [stored])
         self.assertEqual(created["id"], UUID)
@@ -140,6 +157,7 @@ class XuiClientTests(unittest.TestCase):
         stored = client_record(flow="", expire_ms=0, enabled=False)
         opener = fake_opener(
             [
+                api_response({"success": True, "obj": "csrf-token-123"}),
                 api_response({"success": True, "msg": "", "obj": None}),
                 api_response({"success": True, "msg": "", "obj": None}),
                 api_response({"success": True, "msg": "", "obj": inbound_with_clients(stored)}),
@@ -157,9 +175,10 @@ class XuiClientTests(unittest.TestCase):
             enabled=False,
         )
 
-        form = request_form(opener.requests[1][0])
+        form = request_form(opener.requests[2][0])
         settings = json.loads(form["settings"][0])
-        self.assertEqual(request_path(opener.requests[1][0]), f"panel/api/inbounds/updateClient/{UUID}")
+        self.assertEqual(request_path(opener.requests[2][0]), f"panel/api/inbounds/updateClient/{UUID}")
+        self.assertEqual(opener.requests[2][0].headers["X-csrf-token"], "csrf-token-123")
         self.assertEqual(form["id"], ["1"])
         self.assertEqual(settings["clients"], [stored])
         self.assertEqual(updated["enable"], False)
@@ -168,6 +187,7 @@ class XuiClientTests(unittest.TestCase):
         stored = client_record()
         opener = fake_opener(
             [
+                api_response({"success": True, "obj": "csrf-token-123"}),
                 api_response({"success": True, "msg": "", "obj": None}),
                 b"",
                 api_response({"success": True, "msg": "", "obj": inbound_with_clients(stored)}),
@@ -185,10 +205,10 @@ class XuiClientTests(unittest.TestCase):
         )
 
         self.assertEqual(created["email"], EMAIL)
-        self.assertEqual(request_path(opener.requests[2][0]), "panel/api/inbounds/get/1")
+        self.assertEqual(request_path(opener.requests[3][0]), "panel/api/inbounds/get/1")
 
     def test_json_failure_messages_are_converted_to_xui_api_error(self):
-        client = XuiClient(BASE, "admin", "secret", opener=fake_opener([api_response({"success": False, "msg": "permission denied"})]))
+        client = XuiClient(BASE, "admin", "secret", opener=fake_opener([api_response({"success": True, "obj": "csrf-token-123"}), api_response({"success": False, "msg": "permission denied"})]))
 
         with self.assertRaisesRegex(XuiApiError, "permission denied"):
             client.login()
@@ -241,7 +261,15 @@ class XuiClientTests(unittest.TestCase):
         ]
         for failure in failures:
             with self.subTest(failure=failure):
-                client = XuiClient(BASE, "admin", "secret", opener=fake_opener([api_response({"success": False, "msg": failure})]))
+                client = XuiClient(
+                    BASE,
+                    "admin",
+                    "secret",
+                    opener=fake_opener([
+                        api_response({"success": True, "obj": "csrf-token-123"}),
+                        api_response({"success": False, "msg": failure}),
+                    ]),
+                )
                 with self.assertRaises(XuiApiError) as raised:
                     client.login()
 

@@ -32,13 +32,18 @@ class XuiClient:
         self.context = None if verify_tls else ssl._create_unverified_context()
         self.cookies = CookieJar()
         self.opener = opener or self._build_opener()
+        self.csrf_token = ""
 
     def __repr__(self) -> str:
         return f"XuiClient(base_url={self.base_url!r}, username={self.username!r}, timeout={self.timeout!r})"
 
     def login(self) -> None:
+        self.csrf_token = self._fetch_csrf_token()
         body = urllib.parse.urlencode({"username": self.username, "password": self.password}).encode("utf-8")
-        response = self._request("login", data=body, headers={"Content-Type": "application/x-www-form-urlencoded"})
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        if self.csrf_token:
+            headers["X-CSRF-Token"] = self.csrf_token
+        response = self._request("login", data=body, headers=headers)
         self._parse_payload(response, "x-ui login failed")
 
     def list_inbounds(self) -> list[dict[str, Any]]:
@@ -106,7 +111,10 @@ class XuiClient:
 
     def _request(self, path: str, data: bytes | None = None, headers: dict[str, str] | None = None) -> str:
         url = urllib.parse.urljoin(self.base_url, path)
-        request = urllib.request.Request(url, data=data, headers=headers or {})
+        request_headers = dict(headers or {})
+        if data is not None and self.csrf_token and not any(key.lower() == "x-csrf-token" for key in request_headers):
+            request_headers["X-CSRF-Token"] = self.csrf_token
+        request = urllib.request.Request(url, data=data, headers=request_headers)
         try:
             with self.opener.open(request, timeout=self.timeout) as response:
                 return response.read().decode("utf-8", errors="replace")
@@ -127,6 +135,15 @@ class XuiClient:
         if self.context:
             handlers.append(urllib.request.HTTPSHandler(context=self.context))
         return urllib.request.build_opener(*handlers)
+
+    def _fetch_csrf_token(self) -> str:
+        try:
+            response = self._request("csrf-token")
+            payload = self._parse_payload(response, "x-ui csrf token failed")
+        except XuiApiError:
+            return ""
+        token = payload.get("obj") or payload.get("csrfToken") or payload.get("token") or ""
+        return str(token) if token else ""
 
     def _parse_payload(self, response: str, failure_message: str, allow_empty: bool = False) -> dict[str, Any]:
         if not response.strip():
