@@ -11,7 +11,7 @@ from typing import Any
 
 from .auth import hash_password, verify_password
 from .billing import bytes_from_gb
-from .vless import parse_vless_template, validate_target_nodes
+from .vless import parse_vless_template, positive_finite_float, validate_target_nodes
 
 
 class Database:
@@ -912,12 +912,7 @@ class Database:
             raise ValueError("inbound_id is required") from exc
         if inbound_id <= 0:
             raise ValueError("inbound_id must be positive")
-        try:
-            rate = float(rate)
-        except (TypeError, ValueError) as exc:
-            raise ValueError("rate must be positive") from exc
-        if rate <= 0:
-            raise ValueError("rate must be positive")
+        rate = positive_finite_float(rate, "rate")
 
         parse_vless_template(source_url)
         if enabled:

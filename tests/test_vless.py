@@ -114,6 +114,12 @@ class ManagedNodeHelperTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "same multiplier"):
             validate_target_nodes([node(rate=1), node(id=2, rate=3)])
 
+    def test_target_rejects_non_finite_rates(self):
+        for rate in (float("nan"), float("inf"), "nan", "inf"):
+            with self.subTest(rate=rate):
+                with self.assertRaisesRegex(ValueError, "positive"):
+                    validate_target_nodes([node(rate=rate)])
+
     def test_target_rejects_conflicting_flows(self):
         with self.assertRaisesRegex(ValueError, "same flow"):
             validate_target_nodes(
@@ -199,6 +205,12 @@ class ManagedNodeDatabaseValidationTests(unittest.TestCase):
             with self.subTest(overrides=overrides):
                 with self.assertRaisesRegex(ValueError, message):
                     self.create_managed_node(**overrides)
+
+    def test_create_managed_node_rejects_non_finite_rate_with_friendly_error(self):
+        for rate in ("inf", "nan"):
+            with self.subTest(rate=rate):
+                with self.assertRaisesRegex(ValueError, "positive"):
+                    self.create_managed_node(rate=rate)
 
     def test_create_enabled_managed_node_rejects_enabled_sibling_rate_conflict(self):
         self.create_managed_node(rate=1)

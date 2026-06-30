@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import uuid
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
@@ -74,7 +75,7 @@ def validate_target_nodes(nodes: Sequence[Mapping[str, Any]]) -> tuple[float, st
         elif target != expected_target:
             raise ValueError("managed nodes must belong to the same target")
 
-        rate = _positive_float(item.get("rate"), "multiplier")
+        rate = positive_finite_float(item.get("rate"), "multiplier")
         flow = parse_vless_template(str(item.get("source_url") or "")).flow
         if expected_rate is None:
             expected_rate = rate
@@ -130,11 +131,11 @@ def _positive_int(value: Any, name: str) -> int:
     return number
 
 
-def _positive_float(value: Any, name: str) -> float:
+def positive_finite_float(value: Any, name: str) -> float:
     try:
         number = float(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{name} must be positive") from exc
-    if number <= 0:
+    if not math.isfinite(number) or number <= 0:
         raise ValueError(f"{name} must be positive")
     return number
