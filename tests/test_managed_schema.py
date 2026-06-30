@@ -161,6 +161,7 @@ class ManagedSchemaTests(unittest.TestCase):
                     "weighted_up": ("INTEGER", 1, "0", 0),
                     "weighted_down": ("INTEGER", 1, "0", 0),
                     "rate": ("REAL", 1, "1", 0),
+                    "reset_pending": ("INTEGER", 1, "0", 0),
                     "updated_at": ("INTEGER", 1, "0", 0),
                 },
             )
@@ -316,6 +317,26 @@ class ManagedSchemaTests(unittest.TestCase):
         self.assertEqual(ledger["weighted_down"], 10)
         self.assertEqual(db.managed_usage_totals(user_id), {"upload": 30, "download": 10})
 
+    def test_reset_without_prior_ledger_baselines_first_post_reset_sync(self):
+        db, user_id, panel_id = self.create_target()
+        client = db.ensure_managed_client(user_id, panel_id, 1, "vless", "", 2.0, 0)
+
+        db.reset_managed_usage(user_id)
+        baseline = db.advance_usage_ledger(client["id"], 500, 200, 2.0)
+        billed = db.advance_usage_ledger(client["id"], 550, 230, 2.0)
+
+        self.assertEqual(baseline["last_remote_up"], 500)
+        self.assertEqual(baseline["last_remote_down"], 200)
+        self.assertEqual(baseline["raw_up"], 0)
+        self.assertEqual(baseline["raw_down"], 0)
+        self.assertEqual(baseline["weighted_up"], 0)
+        self.assertEqual(baseline["weighted_down"], 0)
+        self.assertEqual(billed["raw_up"], 50)
+        self.assertEqual(billed["raw_down"], 30)
+        self.assertEqual(billed["weighted_up"], 100)
+        self.assertEqual(billed["weighted_down"], 60)
+        self.assertEqual(db.managed_usage_totals(user_id), {"upload": 100, "download": 60})
+
     def test_deleting_managed_client_cascades_to_usage_ledger(self):
         db, user_id, panel_id = self.create_target()
         client = db.ensure_managed_client(user_id, panel_id, 1, "vless", "", 1.0, 0)
@@ -326,6 +347,25 @@ class ManagedSchemaTests(unittest.TestCase):
 
         self.assertIsNone(db.get_managed_client(client["id"]))
         self.assertIsNone(db.get_usage_ledger(client["id"]))
+
+    def test_delete_panel_rejects_managed_client_usage_with_value_error(self):
+        db, user_id, panel_id = self.create_target()
+        db.ensure_managed_client(user_id, panel_id, 1, "vless", "", 1.0, 0)
+
+        with self.assertRaisesRegex(ValueError, "panel is in use"):
+            db.delete_panel(panel_id)
+
+    def test_managed_client_mutators_reject_missing_client_id(self):
+        db, _, _ = self.create_target()
+
+        with self.assertRaisesRegex(ValueError, "managed client not found"):
+            db.update_managed_client_result(
+                999, state="failed", remote_enabled=False, error="missing"
+            )
+        with self.assertRaisesRegex(ValueError, "managed client not found"):
+            db.set_managed_client_desired(999, enabled=False, expire_at=123)
+        with self.assertRaisesRegex(ValueError, "managed client not found"):
+            db.set_managed_client_rate(999, 2.0)
 
     def test_settings_and_reinitialization_preserve_migrated_data(self):
         db, user_id, panel_id = self.create_target()

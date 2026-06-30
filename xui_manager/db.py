@@ -144,6 +144,7 @@ class Database:
                     weighted_up integer not null default 0,
                     weighted_down integer not null default 0,
                     rate real not null default 1,
+                    reset_pending integer not null default 0,
                     updated_at integer not null default 0,
                     foreign key(managed_client_id) references managed_clients(id) on delete cascade
                 );
@@ -162,6 +163,7 @@ class Database:
             )
             self._ensure_column(conn, "nodes", "inbound_id", "integer not null default 0")
             self._ensure_column(conn, "nodes", "mode", "text not null default 'static'")
+            self._ensure_column(conn, "usage_ledgers", "reset_pending", "integer not null default 0")
 
     def _ensure_column(self, conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
         columns = [row["name"] for row in conn.execute(f"pragma table_info({table})")]
@@ -462,7 +464,11 @@ class Database:
     def delete_panel(self, panel_id: int) -> None:
         with self.session() as conn:
             in_use = conn.execute("select 1 from nodes where panel_id=? limit 1", (int(panel_id),)).fetchone()
-            if in_use:
+            managed_in_use = conn.execute(
+                "select 1 from managed_clients where panel_id=? limit 1",
+                (int(panel_id),),
+            ).fetchone()
+            if in_use or managed_in_use:
                 raise ValueError("panel is in use")
             result = conn.execute("delete from panels where id=?", (int(panel_id),))
             if result.rowcount == 0:
@@ -649,7 +655,7 @@ class Database:
     ) -> None:
         now = int(time.time())
         with self.session() as conn:
-            conn.execute(
+            result = conn.execute(
                 """
                 update managed_clients
                 set state=?, remote_enabled=?, last_error=?,
@@ -658,12 +664,14 @@ class Database:
                 """,
                 (state, int(remote_enabled), error, now, now, int(client_id)),
             )
+            if result.rowcount == 0:
+                raise ValueError("managed client not found")
 
     def set_managed_client_desired(
         self, client_id: int, *, enabled: bool, expire_at: int
     ) -> None:
         with self.session() as conn:
-            conn.execute(
+            result = conn.execute(
                 """
                 update managed_clients
                 set desired_enabled=?, desired_expire_at=?, updated_at=?
@@ -671,13 +679,17 @@ class Database:
                 """,
                 (int(enabled), int(expire_at), int(time.time()), int(client_id)),
             )
+            if result.rowcount == 0:
+                raise ValueError("managed client not found")
 
     def set_managed_client_rate(self, client_id: int, rate: float) -> None:
         with self.session() as conn:
-            conn.execute(
+            result = conn.execute(
                 "update managed_clients set rate=?, updated_at=? where id=?",
                 (float(rate), int(time.time()), int(client_id)),
             )
+            if result.rowcount == 0:
+                raise ValueError("managed client not found")
 
     def get_usage_ledger(self, managed_client_id: int) -> dict[str, Any] | None:
         with self.session() as conn:
@@ -702,8 +714,13 @@ class Database:
             ).fetchone()
             previous_up = int(previous["last_remote_up"]) if previous else 0
             previous_down = int(previous["last_remote_down"]) if previous else 0
-            delta_up = remote_up - previous_up if remote_up >= previous_up else remote_up
-            delta_down = remote_down - previous_down if remote_down >= previous_down else remote_down
+            reset_pending = bool(previous["reset_pending"]) if previous else False
+            if reset_pending:
+                delta_up = 0
+                delta_down = 0
+            else:
+                delta_up = remote_up - previous_up if remote_up >= previous_up else remote_up
+                delta_down = remote_down - previous_down if remote_down >= previous_down else remote_down
             raw_up = (int(previous["raw_up"]) if previous else 0) + delta_up
             raw_down = (int(previous["raw_down"]) if previous else 0) + delta_down
             weighted_up = (int(previous["weighted_up"]) if previous else 0) + int(delta_up * rate)
@@ -713,8 +730,8 @@ class Database:
                 """
                 insert into usage_ledgers(
                     managed_client_id, last_remote_up, last_remote_down, raw_up, raw_down,
-                    weighted_up, weighted_down, rate, updated_at
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    weighted_up, weighted_down, rate, reset_pending, updated_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 on conflict(managed_client_id) do update set
                     last_remote_up=excluded.last_remote_up,
                     last_remote_down=excluded.last_remote_down,
@@ -723,6 +740,7 @@ class Database:
                     weighted_up=excluded.weighted_up,
                     weighted_down=excluded.weighted_down,
                     rate=excluded.rate,
+                    reset_pending=excluded.reset_pending,
                     updated_at=excluded.updated_at
                 """,
                 (
@@ -734,6 +752,7 @@ class Database:
                     weighted_up,
                     weighted_down,
                     rate,
+                    0,
                     now,
                 ),
             )
@@ -767,8 +786,8 @@ class Database:
         with self.session() as conn:
             conn.execute(
                 """
-                insert or ignore into usage_ledgers(managed_client_id, rate, updated_at)
-                select id, rate, ? from managed_clients where user_id=?
+                insert or ignore into usage_ledgers(managed_client_id, rate, reset_pending, updated_at)
+                select id, rate, 1, ? from managed_clients where user_id=?
                 """,
                 (now, int(user_id)),
             )
