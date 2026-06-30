@@ -201,6 +201,35 @@ class ProvisioningTests(unittest.TestCase):
         self.assertEqual(result, {"provisioned": 0, "failed": 0, "pending": 0})
         self.assertEqual(self.db.list_managed_clients(user_id=self.user["id"]), [])
 
+    def test_status_ignores_obsolete_failed_targets_after_node_inbound_changes(self):
+        panel_id = self.panel(
+            "Panel",
+            "https://panel.example.com",
+            fake=FakePanelClient([inbound(10)]),
+        )
+        obsolete = self.db.ensure_managed_client(
+            self.user["id"],
+            panel_id,
+            9,
+            "vless",
+            "",
+            1,
+            self.user["expire_at"],
+        )
+        self.db.update_managed_client_result(
+            obsolete["id"],
+            state="failed",
+            remote_enabled=False,
+            error="Obtain (record not found)",
+        )
+        self.managed_node(panel_id, 10)
+
+        service = ProvisioningService(self.db, self.factory)
+        result = service.provision_user(self.user["id"])
+
+        self.assertEqual(result, {"provisioned": 1, "failed": 0, "pending": 0})
+        self.assertEqual(service.failure_details_for_user(self.user["id"]), [])
+
     def test_set_user_enabled_reconciles_remote_enabled_state(self):
         panel_id = self.panel("Panel", "https://panel.example.com")
         self.managed_node(panel_id, 1)

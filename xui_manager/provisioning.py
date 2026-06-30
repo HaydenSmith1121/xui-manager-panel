@@ -59,7 +59,7 @@ class ProvisioningService:
         return {"targets": len(targets), "apply": bool(apply), **self.status_for_user(user_id)}
 
     def status_for_user(self, user_id: int) -> dict[str, int]:
-        clients = self.db.list_managed_clients(user_id=user_id)
+        clients = self._current_managed_clients(user_id)
         return {
             "provisioned": sum(1 for item in clients if item["state"] == "provisioned"),
             "failed": sum(1 for item in clients if item["state"] == "failed"),
@@ -68,7 +68,7 @@ class ProvisioningService:
 
     def failure_details_for_user(self, user_id: int) -> list[dict[str, Any]]:
         panels = self._panels_by_id()
-        failed = self.db.list_managed_clients(user_id=user_id, states=["failed"])
+        failed = [client for client in self._current_managed_clients(user_id) if client["state"] == "failed"]
         details: list[dict[str, Any]] = []
         for client in failed:
             panel = panels.get(int(client["panel_id"])) or {}
@@ -84,6 +84,29 @@ class ProvisioningService:
                 }
             )
         return details
+
+    def _current_managed_clients(self, user_id: int) -> list[dict[str, Any]]:
+        keys = self._current_target_keys(user_id)
+        return [
+            client
+            for client in self.db.list_managed_clients(user_id=user_id)
+            if (int(client["panel_id"]), int(client["inbound_id"])) in keys
+        ]
+
+    def _current_target_keys(self, user_id: int) -> set[tuple[int, int]]:
+        user = self.db.get_user(user_id)
+        if not user:
+            return set()
+        plan = self.db.get_plan(user.get("plan_id"))
+        if not plan:
+            return set()
+        panels = self._panels_by_id()
+        nodes = eligible_managed_nodes(self.db.list_nodes(enabled_only=True), plan["allowed_tags"])
+        return {
+            (int(node["panel_id"]), int(node["inbound_id"]))
+            for node in nodes
+            if panels.get(node["panel_id"], {}).get("enabled")
+        }
 
     def _active_user(self, user_id: int) -> dict[str, Any]:
         user = self.db.get_user(user_id)
