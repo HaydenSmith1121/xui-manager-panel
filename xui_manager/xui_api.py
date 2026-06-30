@@ -114,13 +114,13 @@ class XuiClient:
             detail = f"HTTP {exc.code}"
             if exc.reason:
                 detail = f"{detail} {self._sanitize(str(exc.reason))}"
-            raise XuiApiError(f"x-ui request failed for {path}: {detail}") from exc
+            raise XuiApiError(f"x-ui request failed: {detail}") from exc
         except urllib.error.URLError as exc:
-            raise XuiApiError(f"x-ui request failed for {path}: URL error") from exc
+            raise XuiApiError("x-ui request failed: URL error") from exc
         except (TimeoutError, socket.timeout) as exc:
-            raise XuiApiError(f"x-ui request timed out for {path}") from exc
+            raise XuiApiError("x-ui request timed out") from exc
         except OSError as exc:
-            raise XuiApiError(f"x-ui request failed for {path}: transport error") from exc
+            raise XuiApiError("x-ui request failed: transport error") from exc
 
     def _build_opener(self) -> Any:
         handlers: list[Any] = [urllib.request.HTTPCookieProcessor(self.cookies)]
@@ -191,10 +191,11 @@ class XuiClient:
 
     def _sanitize(self, message: str) -> str:
         sanitized = message
+        sanitized = re.sub(r"(?im)\b(?:set-cookie|cookie)\s*:[^\r\n]*", "[redacted]", sanitized)
+        sanitized = re.sub(r"(?i)\b(?:cookie|session|set-cookie)\s*=\s*[^,;\s]+", "[redacted]", sanitized)
         if self.password:
             sanitized = sanitized.replace(self.password, "[redacted]")
         sanitized = re.sub(r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\b", "[redacted]", sanitized)
-        sanitized = re.sub(r"(?i)(cookie|session|set-cookie)[^,;\s]*", "[redacted]", sanitized)
         return sanitized
 
 

@@ -217,6 +217,41 @@ class XuiClientTests(unittest.TestCase):
                 self.assertNotIn(UUID, message)
                 self.assertNotIn("raw body", message)
 
+    def test_update_vless_client_timeout_redacts_uuid_from_endpoint_path(self):
+        client = XuiClient(BASE, "admin", "secret", opener=fake_opener([socket.timeout("network stalled")]))
+
+        with self.assertRaises(XuiApiError) as raised:
+            client.update_vless_client(
+                inbound_id=1,
+                client_uuid=UUID,
+                email=EMAIL,
+                flow="xtls-rprx-vision",
+                expire_at=1_800_000_000,
+                enabled=True,
+            )
+
+        message = str(raised.exception)
+        self.assertNotIn(UUID, message)
+        self.assertNotIn("updateClient", message)
+
+    def test_cookie_header_text_is_redacted_from_json_failure_message(self):
+        failures = [
+            "Set-Cookie: SID=abc123; Path=/; HttpOnly",
+            "Cookie: SID=abc123; x-ui=secret-session",
+        ]
+        for failure in failures:
+            with self.subTest(failure=failure):
+                client = XuiClient(BASE, "admin", "secret", opener=fake_opener([api_response({"success": False, "msg": failure})]))
+                with self.assertRaises(XuiApiError) as raised:
+                    client.login()
+
+                message = str(raised.exception)
+                self.assertNotIn("SID", message)
+                self.assertNotIn("abc123", message)
+                self.assertNotIn("secret-session", message)
+                self.assertNotIn("Set-Cookie", message)
+                self.assertNotIn("Cookie", message)
+
     def test_client_traffic_returns_up_down_from_client_stats(self):
         inbound = inbound_with_clients(
             client_record(),
