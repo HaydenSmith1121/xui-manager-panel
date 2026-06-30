@@ -4,6 +4,7 @@ import json
 import secrets
 import sqlite3
 import time
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -108,9 +109,59 @@ class Database:
                     created_at integer not null,
                     foreign key(user_id) references users(id)
                 );
+
+                create table if not exists managed_clients (
+                    id integer primary key autoincrement,
+                    user_id integer not null,
+                    panel_id integer not null,
+                    inbound_id integer not null,
+                    protocol text not null default 'vless',
+                    client_uuid text not null,
+                    remote_email text not null,
+                    flow text not null default '',
+                    rate real not null default 1,
+                    desired_expire_at integer not null default 0,
+                    desired_enabled integer not null default 1,
+                    state text not null default 'pending',
+                    remote_enabled integer not null default 0,
+                    last_error text not null default '',
+                    attempt_count integer not null default 0,
+                    last_attempt_at integer not null default 0,
+                    last_synced_at integer not null default 0,
+                    created_at integer not null,
+                    updated_at integer not null,
+                    unique(user_id, panel_id, inbound_id),
+                    foreign key(user_id) references users(id),
+                    foreign key(panel_id) references panels(id)
+                );
+
+                create table if not exists usage_ledgers (
+                    managed_client_id integer primary key,
+                    last_remote_up integer not null default 0,
+                    last_remote_down integer not null default 0,
+                    raw_up integer not null default 0,
+                    raw_down integer not null default 0,
+                    weighted_up integer not null default 0,
+                    weighted_down integer not null default 0,
+                    rate real not null default 1,
+                    updated_at integer not null default 0,
+                    foreign key(managed_client_id) references managed_clients(id) on delete cascade
+                );
+
+                create table if not exists app_settings (
+                    key text primary key,
+                    value text not null
+                );
+
+                create index if not exists idx_managed_clients_user_state
+                on managed_clients(user_id, state);
+
+                create index if not exists idx_managed_clients_panel_inbound
+                on managed_clients(panel_id, inbound_id);
                 """
             )
             self._ensure_column(conn, "nodes", "inbound_id", "integer not null default 0")
+            self._ensure_column(conn, "nodes", "mode", "text not null default 'static'")
 
     def _ensure_column(self, conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
         columns = [row["name"] for row in conn.execute(f"pragma table_info({table})")]
@@ -503,6 +554,251 @@ class Database:
             )
             return [dict(row) for row in rows]
 
+    def ensure_managed_client(
+        self,
+        user_id: int,
+        panel_id: int,
+        inbound_id: int,
+        protocol: str,
+        flow: str,
+        rate: float,
+        expire_at: int,
+    ) -> dict[str, Any]:
+        client_uuid = str(uuid.uuid4())
+        remote_email = f"xum-u{int(user_id)}-p{int(panel_id)}-i{int(inbound_id)}"
+        now = int(time.time())
+        with self.session() as conn:
+            conn.execute("begin immediate")
+            conn.execute(
+                """
+                insert into managed_clients(
+                    user_id, panel_id, inbound_id, protocol, client_uuid, remote_email,
+                    flow, rate, desired_expire_at, created_at, updated_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict(user_id, panel_id, inbound_id) do nothing
+                """,
+                (
+                    int(user_id),
+                    int(panel_id),
+                    int(inbound_id),
+                    protocol,
+                    client_uuid,
+                    remote_email,
+                    flow,
+                    float(rate),
+                    int(expire_at),
+                    now,
+                    now,
+                ),
+            )
+            row = conn.execute(
+                """
+                select * from managed_clients
+                where user_id=? and panel_id=? and inbound_id=?
+                """,
+                (int(user_id), int(panel_id), int(inbound_id)),
+            ).fetchone()
+            return self._decode_managed_client(row)
+
+    def get_managed_client(self, client_id: int) -> dict[str, Any] | None:
+        with self.session() as conn:
+            row = conn.execute("select * from managed_clients where id=?", (int(client_id),)).fetchone()
+            return self._decode_managed_client(row) if row else None
+
+    def get_managed_client_for_target(
+        self, user_id: int, panel_id: int, inbound_id: int
+    ) -> dict[str, Any] | None:
+        with self.session() as conn:
+            row = conn.execute(
+                """
+                select * from managed_clients
+                where user_id=? and panel_id=? and inbound_id=?
+                """,
+                (int(user_id), int(panel_id), int(inbound_id)),
+            ).fetchone()
+            return self._decode_managed_client(row) if row else None
+
+    def list_managed_clients(
+        self, user_id: int | None = None, states: list[str] | tuple[str, ...] | None = None
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if user_id is not None:
+            clauses.append("user_id=?")
+            params.append(int(user_id))
+        if states is not None:
+            if not states:
+                return []
+            clauses.append(f"state in ({','.join('?' for _ in states)})")
+            params.extend(states)
+
+        sql = "select * from managed_clients"
+        if clauses:
+            sql += " where " + " and ".join(clauses)
+        sql += " order by id"
+        with self.session() as conn:
+            return [self._decode_managed_client(row) for row in conn.execute(sql, params)]
+
+    def update_managed_client_result(
+        self,
+        client_id: int,
+        *,
+        state: str,
+        remote_enabled: bool,
+        error: str,
+    ) -> None:
+        now = int(time.time())
+        with self.session() as conn:
+            conn.execute(
+                """
+                update managed_clients
+                set state=?, remote_enabled=?, last_error=?,
+                    attempt_count=attempt_count+1, last_attempt_at=?, updated_at=?
+                where id=?
+                """,
+                (state, int(remote_enabled), error, now, now, int(client_id)),
+            )
+
+    def set_managed_client_desired(
+        self, client_id: int, *, enabled: bool, expire_at: int
+    ) -> None:
+        with self.session() as conn:
+            conn.execute(
+                """
+                update managed_clients
+                set desired_enabled=?, desired_expire_at=?, updated_at=?
+                where id=?
+                """,
+                (int(enabled), int(expire_at), int(time.time()), int(client_id)),
+            )
+
+    def set_managed_client_rate(self, client_id: int, rate: float) -> None:
+        with self.session() as conn:
+            conn.execute(
+                "update managed_clients set rate=?, updated_at=? where id=?",
+                (float(rate), int(time.time()), int(client_id)),
+            )
+
+    def get_usage_ledger(self, managed_client_id: int) -> dict[str, Any] | None:
+        with self.session() as conn:
+            row = conn.execute(
+                "select * from usage_ledgers where managed_client_id=?",
+                (int(managed_client_id),),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def advance_usage_ledger(
+        self, managed_client_id: int, remote_up: int, remote_down: int, rate: float
+    ) -> dict[str, Any]:
+        remote_up = int(remote_up)
+        remote_down = int(remote_down)
+        rate = float(rate)
+        now = int(time.time())
+        with self.session() as conn:
+            conn.execute("begin immediate")
+            previous = conn.execute(
+                "select * from usage_ledgers where managed_client_id=?",
+                (int(managed_client_id),),
+            ).fetchone()
+            previous_up = int(previous["last_remote_up"]) if previous else 0
+            previous_down = int(previous["last_remote_down"]) if previous else 0
+            delta_up = remote_up - previous_up if remote_up >= previous_up else remote_up
+            delta_down = remote_down - previous_down if remote_down >= previous_down else remote_down
+            raw_up = (int(previous["raw_up"]) if previous else 0) + delta_up
+            raw_down = (int(previous["raw_down"]) if previous else 0) + delta_down
+            weighted_up = (int(previous["weighted_up"]) if previous else 0) + int(delta_up * rate)
+            weighted_down = (int(previous["weighted_down"]) if previous else 0) + int(delta_down * rate)
+
+            conn.execute(
+                """
+                insert into usage_ledgers(
+                    managed_client_id, last_remote_up, last_remote_down, raw_up, raw_down,
+                    weighted_up, weighted_down, rate, updated_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict(managed_client_id) do update set
+                    last_remote_up=excluded.last_remote_up,
+                    last_remote_down=excluded.last_remote_down,
+                    raw_up=excluded.raw_up,
+                    raw_down=excluded.raw_down,
+                    weighted_up=excluded.weighted_up,
+                    weighted_down=excluded.weighted_down,
+                    rate=excluded.rate,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    int(managed_client_id),
+                    remote_up,
+                    remote_down,
+                    raw_up,
+                    raw_down,
+                    weighted_up,
+                    weighted_down,
+                    rate,
+                    now,
+                ),
+            )
+            conn.execute(
+                "update managed_clients set last_synced_at=?, updated_at=? where id=?",
+                (now, now, int(managed_client_id)),
+            )
+            row = conn.execute(
+                "select * from usage_ledgers where managed_client_id=?",
+                (int(managed_client_id),),
+            ).fetchone()
+            return dict(row)
+
+    def managed_usage_totals(self, user_id: int) -> dict[str, int]:
+        with self.session() as conn:
+            row = conn.execute(
+                """
+                select
+                    coalesce(sum(usage_ledgers.weighted_up), 0) as upload,
+                    coalesce(sum(usage_ledgers.weighted_down), 0) as download
+                from managed_clients
+                left join usage_ledgers on usage_ledgers.managed_client_id=managed_clients.id
+                where managed_clients.user_id=?
+                """,
+                (int(user_id),),
+            ).fetchone()
+            return {"upload": int(row["upload"]), "download": int(row["download"])}
+
+    def reset_managed_usage(self, user_id: int) -> None:
+        now = int(time.time())
+        with self.session() as conn:
+            conn.execute(
+                """
+                insert or ignore into usage_ledgers(managed_client_id, rate, updated_at)
+                select id, rate, ? from managed_clients where user_id=?
+                """,
+                (now, int(user_id)),
+            )
+            conn.execute(
+                """
+                update usage_ledgers
+                set last_remote_up=0, last_remote_down=0, raw_up=0, raw_down=0,
+                    weighted_up=0, weighted_down=0, updated_at=?
+                where managed_client_id in (
+                    select id from managed_clients where user_id=?
+                )
+                """,
+                (now, int(user_id)),
+            )
+
+    def get_setting(self, key: str, default: Any = None) -> Any:
+        with self.session() as conn:
+            row = conn.execute("select value from app_settings where key=?", (key,)).fetchone()
+            return row["value"] if row else default
+
+    def set_setting(self, key: str, value: Any) -> None:
+        with self.session() as conn:
+            conn.execute(
+                """
+                insert into app_settings(key, value) values (?, ?)
+                on conflict(key) do update set value=excluded.value
+                """,
+                (key, str(value)),
+            )
+
     def _decode_plan(self, row: sqlite3.Row) -> dict[str, Any]:
         data = dict(row)
         data["allowed_tags"] = json.loads(data.get("allowed_tags") or "[]")
@@ -514,6 +810,12 @@ class Database:
         data = dict(row)
         data["tags"] = json.loads(data.get("tags") or "[]")
         data["enabled"] = bool(data["enabled"])
+        return data
+
+    def _decode_managed_client(self, row: sqlite3.Row) -> dict[str, Any]:
+        data = dict(row)
+        data["desired_enabled"] = bool(data["desired_enabled"])
+        data["remote_enabled"] = bool(data["remote_enabled"])
         return data
 
     def _decode_user(self, row: sqlite3.Row) -> dict[str, Any]:
