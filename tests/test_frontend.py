@@ -64,6 +64,14 @@ class FrontendTests(unittest.TestCase):
         self.assertIn('$("#loginForm").reset()', app_js)
         self.assertIn('showNotice("已退出登录")', app_js)
 
+    def test_subscription_copy_falls_back_without_clipboard_api(self):
+        app_js = (Path(__file__).resolve().parents[1] / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("async function copyTextFromInput", app_js)
+        self.assertIn("navigator.clipboard", app_js)
+        self.assertIn("document.execCommand", app_js)
+        self.assertIn("input.select()", app_js)
+
     def test_frontend_exposes_managed_provisioning_actions(self):
         root = Path(__file__).resolve().parents[1]
         app_js = (root / "static" / "app.js").read_text(encoding="utf-8")

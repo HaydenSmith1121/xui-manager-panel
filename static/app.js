@@ -73,6 +73,19 @@ function showNotice(message) {
   showNotice.timer = setTimeout(() => box.classList.add("hidden"), 3200);
 }
 
+async function copyTextFromInput(input) {
+  const value = input.value || "";
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  input.focus();
+  input.select();
+  input.setSelectionRange?.(0, value.length);
+  const copied = document.execCommand("copy");
+  if (!copied) throw new Error("复制失败，请手动选择订阅链接复制");
+}
+
 window.addEventListener("unhandledrejection", (event) => {
   const reason = event.reason;
   const message = reason?.message || String(reason || "请求失败");
@@ -340,7 +353,7 @@ function bindEvents() {
     showNotice(`同步完成：更新 ${result.synced || 0} 条，停用 ${result.disabled || 0} 个客户端${result.errors?.length ? "，有错误请检查面板配置" : ""}`);
   });
   $("#copySubBtn").addEventListener("click", async () => {
-    await navigator.clipboard.writeText($("#subscriptionUrl").value);
+    await copyTextFromInput($("#subscriptionUrl"));
     showNotice("订阅链接已复制");
   });
 
