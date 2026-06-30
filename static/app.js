@@ -70,7 +70,7 @@ async function withSubmitState(event, action) {
   event.preventDefault();
   const form = event.currentTarget;
   if (form.dataset.submitting === "true") return;
-  const button = form.querySelector("button");
+  const button = form.querySelector("button[type=submit]");
   const originalText = button?.textContent || "";
   form.dataset.submitting = "true";
   if (button) {
@@ -130,6 +130,7 @@ function renderAuth() {
   $("#authPanel").classList.toggle("hidden", loggedIn);
   $("#accountView").classList.toggle("hidden", !loggedIn || state.view !== "account");
   $("#sessionEmail").textContent = loggedIn ? state.me.email : "未登录";
+  $("#logoutBtn").classList.toggle("hidden", !loggedIn);
   $$(".admin-only").forEach((node) => node.classList.toggle("hidden", state.me?.role !== "admin"));
   if (!loggedIn) return;
 
@@ -227,6 +228,30 @@ function fillForm(form, data) {
   });
 }
 
+function setFormMode(form, title, submit, label, data) {
+  form.reset();
+  fillForm(form, data);
+  form.dataset.mode = "edit";
+  title.textContent = `编辑${label}：${data.name}`;
+  submit.textContent = "保存修改";
+}
+
+function resetFormMode(form, title, submit, label, submitText) {
+  form.reset();
+  form.elements.id.value = "";
+  form.dataset.mode = "create";
+  title.textContent = `新建${label}`;
+  submit.textContent = submitText;
+}
+
+function resetPlanForm() {
+  resetFormMode($("#planForm"), $("#planFormTitle"), $("#planSubmitBtn"), "套餐", "添加套餐");
+}
+
+function resetPanelForm() {
+  resetFormMode($("#panelForm"), $("#panelFormTitle"), $("#panelSubmitBtn"), " X-UI 面板", "添加面板");
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -242,6 +267,19 @@ function bindEvents() {
     await refreshMe();
     showNotice("已刷新");
   });
+  $("#logoutBtn").addEventListener("click", async () => {
+    await api("/api/logout", { method: "POST", body: "{}" });
+    state.me = null;
+    state.users = [];
+    state.panels = [];
+    state.nodes = [];
+    $("#loginForm").reset();
+    setView("account");
+    renderAuth();
+    showNotice("已退出登录");
+  });
+  $("#newPlanBtn").addEventListener("click", resetPlanForm);
+  $("#newPanelBtn").addEventListener("click", resetPanelForm);
   $("#syncUsageBtn").addEventListener("click", async () => {
     const result = await api("/api/admin/sync-usage", { method: "POST", body: "{}" });
     await refreshAdmin();
@@ -267,17 +305,19 @@ function bindEvents() {
   }));
 
   $("#planForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
+    const editing = form.dataset.mode === "edit";
     await api("/api/admin/plans", { method: "POST", body: JSON.stringify(formData(form)) });
-    form.reset();
+    resetPlanForm();
     await refreshAdmin();
-    showNotice("套餐已保存");
+    showNotice(editing ? "套餐修改已保存" : "新套餐已添加");
   }));
 
   $("#panelForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
+    const editing = form.dataset.mode === "edit";
     await api("/api/admin/panels", { method: "POST", body: JSON.stringify(formData(form)) });
-    form.reset();
+    resetPanelForm();
     await refreshAdmin();
-    showNotice("面板已保存");
+    showNotice(editing ? "面板修改已保存" : "新面板已添加");
   }));
 
   $("#nodeForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
@@ -332,12 +372,18 @@ function bindEvents() {
     }
     if (target.dataset.editPlan) {
       const plan = state.plans.find((item) => String(item.id) === target.dataset.editPlan);
-      fillForm($("#planForm"), { ...plan, quota_gb: quotaGb(plan), allowed_tags: plan.allowed_tags || [] });
-      $("#planForm").elements.quota_gb.value = quotaGb(plan);
+      setFormMode(
+        $("#planForm"),
+        $("#planFormTitle"),
+        $("#planSubmitBtn"),
+        "套餐",
+        { ...plan, quota_gb: quotaGb(plan), allowed_tags: plan.allowed_tags || [] },
+      );
       setView("settings");
     }
     if (target.dataset.editPanel) {
-      fillForm($("#panelForm"), state.panels.find((item) => String(item.id) === target.dataset.editPanel));
+      const panel = state.panels.find((item) => String(item.id) === target.dataset.editPanel);
+      setFormMode($("#panelForm"), $("#panelFormTitle"), $("#panelSubmitBtn"), " X-UI 面板", panel);
       setView("settings");
     }
     if (target.dataset.editNode) {
@@ -349,6 +395,8 @@ function bindEvents() {
 
 async function boot() {
   bindEvents();
+  resetPlanForm();
+  resetPanelForm();
   await refreshPublic();
   await refreshMe();
   setView("account");

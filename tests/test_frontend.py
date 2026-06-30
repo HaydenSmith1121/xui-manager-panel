@@ -20,6 +20,7 @@ class FrontendTests(unittest.TestCase):
         self.assertIn('form.dataset.submitting === "true"', app_js)
         self.assertIn("button.disabled = true", app_js)
         self.assertIn("button.disabled = false", app_js)
+        self.assertIn('form.querySelector("button[type=submit]")', app_js)
         self.assertIn("position: fixed", app_css)
         self.assertIn("z-index: 100", app_css)
 
@@ -30,6 +31,31 @@ class FrontendTests(unittest.TestCase):
         self.assertIn("data-delete-panel", app_js)
         self.assertIn("/api/admin/plans/delete", app_js)
         self.assertIn("/api/admin/panels/delete", app_js)
+
+    def test_plan_and_panel_forms_have_explicit_create_modes(self):
+        root = Path(__file__).resolve().parents[1]
+        app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
+        index_html = (root / "static" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="newPlanBtn"', index_html)
+        self.assertIn('id="newPanelBtn"', index_html)
+        self.assertIn('id="planFormTitle"', index_html)
+        self.assertIn('id="panelFormTitle"', index_html)
+        self.assertIn("function resetPlanForm", app_js)
+        self.assertIn("function resetPanelForm", app_js)
+        self.assertIn('form.elements.id.value = ""', app_js)
+        self.assertIn('title.textContent = `编辑${label}', app_js)
+
+    def test_frontend_offers_logout_and_clears_local_session_state(self):
+        root = Path(__file__).resolve().parents[1]
+        app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
+        index_html = (root / "static" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="logoutBtn"', index_html)
+        self.assertIn('api("/api/logout"', app_js)
+        self.assertIn("state.me = null", app_js)
+        self.assertIn('$("#loginForm").reset()', app_js)
+        self.assertIn('showNotice("已退出登录")', app_js)
 
 
 if __name__ == "__main__":

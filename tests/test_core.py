@@ -123,6 +123,26 @@ class AppTests(unittest.TestCase):
         self.assertEqual(payload["user"]["status"], "pending")
         self.assertTrue(payload["user"]["token"])
 
+    def test_logout_invalidates_current_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app = create_app(Path(tmp) / "app.db")
+            app.db.seed_admin("admin@example.com", "password123")
+            login = app.handle_json(
+                "POST",
+                "/api/login",
+                {},
+                json.dumps({"email": "admin@example.com", "password": "password123"}),
+            )
+            cookie = login.headers["Set-Cookie"].split(";", 1)[0]
+            headers = {"Cookie": cookie}
+
+            logout = app.handle_json("POST", "/api/logout", headers, "{}")
+            me = app.handle_json("GET", "/api/me", headers, "")
+
+        self.assertEqual(logout.status, 200)
+        self.assertIn("Max-Age=0", logout.headers["Set-Cookie"])
+        self.assertIsNone(json.loads(me.body)["user"])
+
 
 if __name__ == "__main__":
     unittest.main()

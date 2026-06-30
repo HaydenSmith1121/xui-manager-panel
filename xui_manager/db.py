@@ -306,6 +306,12 @@ class Database:
             )
         return token
 
+    def delete_session(self, token: str) -> None:
+        if not token:
+            return
+        with self.session() as conn:
+            conn.execute("delete from sessions where token=?", (token,))
+
     def get_session_user(self, token: str) -> dict[str, Any] | None:
         if not token:
             return None

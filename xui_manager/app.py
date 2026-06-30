@@ -38,6 +38,9 @@ class XuiManagerApp:
                     return self.json_response({"error": "Invalid email or password"}, 401)
                 session = self.db.create_session(user["id"])
                 return self.json_response({"user": self.user_summary(user, headers)}, headers={"Set-Cookie": cookie_header(session)})
+            if method == "POST" and path == "/api/logout":
+                self.db.delete_session(session_token(headers))
+                return self.json_response({"logged_out": True}, headers={"Set-Cookie": expired_cookie_header()})
             if method == "GET" and path == "/api/me":
                 user = self.user_from_headers(headers)
                 return self.json_response({"user": self.user_summary(user, headers) if user else None})
@@ -136,9 +139,7 @@ class XuiManagerApp:
         return Response(200, target.read_text(encoding="utf-8"), {"Content-Type": content_type + "; charset=utf-8"})
 
     def user_from_headers(self, headers: dict[str, str]) -> dict[str, Any] | None:
-        jar = cookies.SimpleCookie(headers.get("Cookie", ""))
-        morsel = jar.get("session")
-        return self.db.get_session_user(morsel.value) if morsel else None
+        return self.db.get_session_user(session_token(headers))
 
     def require_admin(self, headers: dict[str, str]) -> dict[str, Any] | Response:
         user = self.user_from_headers(headers)
@@ -172,6 +173,16 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
 
 def cookie_header(session: str) -> str:
     return f"session={session}; Path=/; HttpOnly; SameSite=Lax"
+
+
+def expired_cookie_header() -> str:
+    return "session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"
+
+
+def session_token(headers: dict[str, str]) -> str:
+    jar = cookies.SimpleCookie(headers.get("Cookie", ""))
+    morsel = jar.get("session")
+    return morsel.value if morsel else ""
 
 
 def tags_from_payload(value: Any) -> list[str]:

@@ -24,7 +24,10 @@
         </nav>
         <div class="session">
           <span id="sessionEmail">未登录</span>
-          <button id="refreshBtn" class="ghost">刷新</button>
+          <div class="session-actions">
+            <button id="refreshBtn" class="ghost">刷新</button>
+            <button id="logoutBtn" class="ghost hidden">退出登录</button>
+          </div>
         </div>
       </aside>
 
@@ -114,7 +117,10 @@
         <section id="settingsView" class="view hidden">
           <div class="split">
             <form id="planForm" class="panel">
-              <h2>套餐</h2>
+              <div class="form-heading">
+                <h2 id="planFormTitle">新建套餐</h2>
+                <button id="newPlanBtn" type="button" class="ghost">新建</button>
+              </div>
               <input name="id" type="hidden">
               <label>名称<input name="name" required placeholder="1000G 月付"></label>
               <label>总量 GB<input name="quota_gb" type="number" min="0" step="1" required></label>
@@ -122,11 +128,14 @@
               <label>允许标签<input name="allowed_tags" placeholder="us,jp,premium"></label>
               <label class="check"><input name="require_approval" type="checkbox" checked>需要审核</label>
               <label class="check"><input name="enabled" type="checkbox" checked>启用</label>
-              <button type="submit">保存套餐</button>
+              <button id="planSubmitBtn" type="submit">添加套餐</button>
             </form>
 
             <form id="panelForm" class="panel">
-              <h2>X-UI 面板</h2>
+              <div class="form-heading">
+                <h2 id="panelFormTitle">新建 X-UI 面板</h2>
+                <button id="newPanelBtn" type="button" class="ghost">新建</button>
+              </div>
               <input name="id" type="hidden">
               <label>名称<input name="name" required placeholder="RackNerd 美国"></label>
               <label>面板地址<input name="base_url" required placeholder="https://domain:port/path/"></label>
@@ -135,7 +144,7 @@
               <label>面板订阅地址<input name="subscription_url" placeholder="可选"></label>
               <label class="check"><input name="verify_tls" type="checkbox" checked>校验证书</label>
               <label class="check"><input name="enabled" type="checkbox" checked>启用</label>
-              <button type="submit">保存面板</button>
+              <button id="panelSubmitBtn" type="submit">添加面板</button>
             </form>
           </div>
           <div class="split">
