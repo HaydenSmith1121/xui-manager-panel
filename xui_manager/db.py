@@ -11,6 +11,7 @@ from typing import Any
 
 from .auth import hash_password, verify_password
 from .billing import bytes_from_gb
+from .vless import parse_vless_template, validate_target_nodes
 
 
 class Database:
@@ -487,14 +488,36 @@ class Database:
         enabled: bool = True,
         panel_id: int | None = None,
         inbound_id: int = 0,
+        mode: str = "static",
     ) -> int:
         with self.session() as conn:
+            mode, panel_id, inbound_id, rate = self._validate_node_input(
+                conn,
+                name=name,
+                source_url=source_url,
+                rate=rate,
+                tags=tags,
+                enabled=enabled,
+                panel_id=panel_id,
+                inbound_id=inbound_id,
+                mode=mode,
+            )
             cur = conn.execute(
                 """
-                insert into nodes(name, panel_id, inbound_id, source_url, rate, tags, enabled, created_at)
-                values (?, ?, ?, ?, ?, ?, ?, ?)
+                insert into nodes(name, panel_id, inbound_id, mode, source_url, rate, tags, enabled, created_at)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (name, panel_id, int(inbound_id), source_url, float(rate), json.dumps(tags), int(enabled), int(time.time())),
+                (
+                    name,
+                    panel_id,
+                    inbound_id,
+                    mode,
+                    source_url,
+                    rate,
+                    json.dumps(tags),
+                    int(enabled),
+                    int(time.time()),
+                ),
             )
             return int(cur.lastrowid)
 
@@ -508,20 +531,45 @@ class Database:
         enabled: bool = True,
         panel_id: int | None = None,
         inbound_id: int = 0,
+        mode: str = "static",
     ) -> dict[str, Any]:
         with self.session() as conn:
-            conn.execute(
+            existing = conn.execute("select id from nodes where id=?", (int(node_id),)).fetchone()
+            if not existing:
+                raise ValueError("node not found")
+            mode, panel_id, inbound_id, rate = self._validate_node_input(
+                conn,
+                name=name,
+                source_url=source_url,
+                rate=rate,
+                tags=tags,
+                enabled=enabled,
+                panel_id=panel_id,
+                inbound_id=inbound_id,
+                mode=mode,
+                exclude_node_id=int(node_id),
+            )
+            result = conn.execute(
                 """
                 update nodes
-                set name=?, panel_id=?, inbound_id=?, source_url=?, rate=?, tags=?, enabled=?
+                set name=?, panel_id=?, inbound_id=?, mode=?, source_url=?, rate=?, tags=?, enabled=?
                 where id=?
                 """,
-                (name, panel_id, int(inbound_id), source_url, float(rate), json.dumps(tags), int(enabled), int(node_id)),
+                (
+                    name,
+                    panel_id,
+                    inbound_id,
+                    mode,
+                    source_url,
+                    rate,
+                    json.dumps(tags),
+                    int(enabled),
+                    int(node_id),
+                ),
             )
-        with self.session() as conn:
-            row = conn.execute("select * from nodes where id=?", (node_id,)).fetchone()
-            if not row:
+            if result.rowcount == 0:
                 raise ValueError("node not found")
+            row = conn.execute("select * from nodes where id=?", (node_id,)).fetchone()
             return self._decode_node(row)
 
     def list_nodes(self, enabled_only: bool = False) -> list[dict[str, Any]]:
@@ -829,6 +877,80 @@ class Database:
         data["tags"] = json.loads(data.get("tags") or "[]")
         data["enabled"] = bool(data["enabled"])
         return data
+
+    def _validate_node_input(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        name: str,
+        source_url: str,
+        rate: float,
+        tags: list[str],
+        enabled: bool,
+        panel_id: int | None,
+        inbound_id: int,
+        mode: str,
+        exclude_node_id: int | None = None,
+    ) -> tuple[str, int | None, int, float]:
+        mode = (mode or "static").strip().lower()
+        if mode not in {"static", "managed"}:
+            raise ValueError("invalid node mode")
+        if mode == "static":
+            return mode, panel_id, int(inbound_id), float(rate)
+
+        if panel_id is None:
+            raise ValueError("panel_id is required")
+        try:
+            panel_id = int(panel_id)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("panel_id is required") from exc
+        if panel_id <= 0:
+            raise ValueError("panel_id must be positive")
+        try:
+            inbound_id = int(inbound_id)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("inbound_id is required") from exc
+        if inbound_id <= 0:
+            raise ValueError("inbound_id must be positive")
+        try:
+            rate = float(rate)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("rate must be positive") from exc
+        if rate <= 0:
+            raise ValueError("rate must be positive")
+
+        parse_vless_template(source_url)
+        if enabled:
+            siblings = self._enabled_managed_siblings(conn, panel_id, inbound_id, exclude_node_id)
+            candidate = {
+                "name": name,
+                "mode": mode,
+                "panel_id": panel_id,
+                "inbound_id": inbound_id,
+                "source_url": source_url,
+                "rate": rate,
+                "tags": tags,
+                "enabled": enabled,
+            }
+            validate_target_nodes([*siblings, candidate])
+        return mode, panel_id, inbound_id, rate
+
+    def _enabled_managed_siblings(
+        self,
+        conn: sqlite3.Connection,
+        panel_id: int,
+        inbound_id: int,
+        exclude_node_id: int | None,
+    ) -> list[dict[str, Any]]:
+        sql = """
+            select * from nodes
+            where mode='managed' and enabled=1 and panel_id=? and inbound_id=?
+        """
+        params: list[Any] = [panel_id, inbound_id]
+        if exclude_node_id is not None:
+            sql += " and id<>?"
+            params.append(exclude_node_id)
+        return [self._decode_node(row) for row in conn.execute(sql, params)]
 
     def _decode_managed_client(self, row: sqlite3.Row) -> dict[str, Any]:
         data = dict(row)
