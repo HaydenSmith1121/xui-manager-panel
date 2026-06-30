@@ -135,6 +135,19 @@ systemctl restart xui-manager-panel
 cp /opt/xui-manager-panel-data/app.db /root/xui-manager-panel-app.db.bak.$(date +%F-%H%M%S)
 ```
 
+## 重置管理员账号
+
+如果页面点击登录后提示 `Invalid email or password`，或者忘记安装时输出的随机密码，在服务器执行：
+
+```bash
+cd /opt/xui-manager-panel
+git pull --ff-only
+python3 tools/reset_admin.py --email 'admin@admin.com' --password 'admin@admin.com'
+systemctl restart xui-manager-panel
+```
+
+然后用新的邮箱和密码登录。
+
 ## 更新项目
 
 ```bash

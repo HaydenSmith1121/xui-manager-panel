@@ -59,6 +59,13 @@ function showNotice(message) {
   showNotice.timer = setTimeout(() => box.classList.add("hidden"), 3200);
 }
 
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = event.reason;
+  const message = reason?.message || String(reason || "请求失败");
+  showNotice(message);
+  event.preventDefault();
+});
+
 function setView(view) {
   state.view = view;
   $$(".nav-item").forEach((btn) => btn.classList.toggle("active", btn.dataset.view === view));
