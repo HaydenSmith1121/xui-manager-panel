@@ -162,12 +162,36 @@ systemctl restart xui-manager-panel
 cp /opt/xui-manager-panel-data/app.db /root/xui-manager-panel-app.db.bak.$(date +%F-%H%M%S)
 ```
 
-更新项目：
+## 升级新版本
+
+服务器 SSH 里直接执行：
 
 ```bash
 cd /opt/xui-manager-panel
+cp /opt/xui-manager-panel-data/app.db /root/xui-manager-panel-app.db.bak.$(date +%F-%H%M%S)
 git pull --ff-only
+python3 -m compileall -q xui_manager tools
 systemctl restart xui-manager-panel
+systemctl status xui-manager-panel --no-pager
+```
+
+如果你当前部署的是功能分支，还没有合并到 `main`，可以指定分支升级：
+
+```bash
+cd /opt/xui-manager-panel
+cp /opt/xui-manager-panel-data/app.db /root/xui-manager-panel-app.db.bak.$(date +%F-%H%M%S)
+git fetch origin
+git checkout codex/vless-auto-provisioning
+git pull --ff-only origin codex/vless-auto-provisioning
+python3 -m compileall -q xui_manager tools
+systemctl restart xui-manager-panel
+systemctl status xui-manager-panel --no-pager
+```
+
+升级后看实时日志：
+
+```bash
+journalctl -u xui-manager-panel -f
 ```
 
 ## 重置管理员账号
