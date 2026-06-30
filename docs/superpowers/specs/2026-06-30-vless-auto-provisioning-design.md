@@ -30,7 +30,7 @@ Provisioning is best-effort across servers. A failed panel or inbound does not r
 
 ## Chosen Approach
 
-Use the official 3X-UI HTTP API. Each panel adapter authenticates with a session or configured API token, reads the selected inbound, creates or updates a VLESS client, retrieves per-client traffic, and enables or disables that client.
+Use the official 3X-UI HTTP API. Each panel adapter authenticates with the username and password already stored in the application, reads the selected inbound, creates or updates a VLESS client, retrieves per-client traffic, and enables or disables that client. API-token authentication can be added later and is not part of this release.
 
 The alternatives were rejected:
 
@@ -48,8 +48,9 @@ A provisioning target is the unique tuple `(panel_id, inbound_id)`. Multiple sub
 3X-UI reports client traffic at inbound granularity. It cannot identify which of several local node records sharing one inbound carried the traffic. Therefore:
 
 - All enabled nodes on the same provisioning target must have the same multiplier.
+- All enabled nodes on the same provisioning target must require the same VLESS client `flow` value.
 - The admin form rejects conflicting multipliers on one target.
-- Different multipliers require separate 3X-UI inbounds.
+- Conflicting multipliers or client flow values require separate 3X-UI inbounds.
 
 ### Managed Client Record
 
@@ -60,8 +61,9 @@ Add a managed-client table with at least:
 - panel ID
 - inbound ID
 - protocol (`vless` in this release)
-- generated VLESS UUID
-- deterministic remote client label/email
+- generated VLESS UUID, persisted before the first remote request
+- deterministic remote client label `xum-u<user_id>-p<panel_id>-i<inbound_id>`
+- VLESS client flow derived from the validated node template, such as `xtls-rprx-vision` or empty
 - multiplier snapshot
 - desired expiry timestamp
 - remote enabled state
@@ -71,6 +73,19 @@ Add a managed-client table with at least:
 - created and updated timestamps
 
 Enforce a unique constraint on `(user_id, panel_id, inbound_id)`. The remote label is deterministic and does not expose the user's login email. UUIDs and panel credentials must never appear in logs or ordinary admin API responses.
+
+### Usage Ledger
+
+Traffic accounting needs target-level cursors rather than the existing node-level `usage_records`, because multiple nodes can share one provisioning target. Add a target usage ledger containing:
+
+- managed-client ID
+- latest remote upload and download counters
+- accumulated raw upload and download deltas
+- accumulated weighted upload and download totals
+- current multiplier and the raw-counter baseline at which it became effective
+- last successful synchronization timestamp
+
+Each synchronization adds only the positive delta since the previous remote counter. It multiplies that delta by the multiplier active for that interval and adds it to the persistent weighted total. This preserves previously billed traffic when a multiplier changes or a remote counter resets.
 
 ### Node Mode
 
@@ -100,15 +115,15 @@ Eligible nodes are deduplicated by provisioning target before remote API calls.
 2. The database transaction activates the account and creates missing `pending` managed-client records for eligible targets.
 3. The provisioning service processes each target independently.
 4. It logs into 3X-UI, reads and validates the inbound protocol, and checks for the deterministic remote label.
-5. If the matching client already exists, the service adopts or reconciles it without creating a duplicate.
-6. Otherwise, it creates a VLESS client with a generated UUID, unlimited panel-local traffic, the application expiry timestamp, and enabled state.
+5. If the matching label and stored UUID already exist remotely, the service verifies and reconciles expiry/enabled state without creating a duplicate. If the label exists with another UUID, provisioning stops with a visible conflict and never overwrites or silently adopts that client.
+6. Otherwise, it creates a VLESS client with a generated UUID, the target's validated client flow, unlimited panel-local traffic, the application expiry timestamp, and enabled state.
 7. The service reads the inbound again and verifies the client, UUID, expiry, and enabled state.
 8. It stores `provisioned` or a sanitized `failed` result.
 9. The admin response summarizes successful, failed, and pending targets.
 
 Approval is not rolled back when one target fails. Repeating approval or clicking retry is safe because the local unique constraint and deterministic remote label make the operation idempotent.
 
-Only targets allowed by the selected plan are provisioned. If a plan later changes, reconciliation creates newly eligible targets and disables targets that are no longer eligible after administrator confirmation.
+Only targets allowed by the selected plan are provisioned. Editing a plan or node does not silently change already-approved users. The admin UI provides an explicit reconcile action that previews newly eligible and newly ineligible targets before applying those changes.
 
 ## Subscription Generation
 
@@ -122,7 +137,7 @@ For each eligible managed node:
 
 Failed or pending managed targets are omitted from the subscription until provisioned. Static nodes continue using their configured credentials for backward compatibility.
 
-An inactive, expired, or quota-exhausted user receives no usable proxy configuration. The endpoint still returns subscription metadata where the client supports it, along with an appropriate HTTP status/body for diagnostics.
+An inactive, expired, or quota-exhausted user receives no usable proxy configuration. For a valid subscription token, the endpoint returns HTTP 200 with valid empty Clash YAML and the normal subscription metadata headers so Clash can continue displaying quota and expiry instead of reporting a fetch error. An invalid token receives HTTP 404 without account details.
 
 The subscription response contains:
 
@@ -144,7 +159,7 @@ weighted_download = remote_download * target_multiplier
 user_used         = sum(weighted_upload + weighted_download)
 ```
 
-The multiplier is snapshotted on the managed-client record so historical traffic is not retroactively re-priced when an administrator changes a node. A deliberate reset or renewal operation establishes a new accounting baseline.
+The usage ledger applies the multiplier only to new counter deltas. Historical weighted totals are never recalculated when an administrator changes a multiplier. A deliberate reset or renewal operation establishes a new accounting baseline only when the administrator explicitly requests it.
 
 Counter decreases are treated as a remote reset, not negative usage. The application records a new baseline and preserves already-accounted historical usage. Unreachable panels retain their last known values and surface a stale-data warning.
 
@@ -178,7 +193,7 @@ Renewal or administrator re-enable updates expiry and enabled state on all eligi
 - For managed mode, choose a panel and VLESS inbound from a loaded list.
 - Configure display name, tags, multiplier, share-link template, and enabled state.
 - Validate that the link is VLESS and that its connection parameters match the selected inbound closely enough to avoid obvious mistakes.
-- Block conflicting multipliers for nodes sharing one provisioning target.
+- Block conflicting multipliers or VLESS client flow values for nodes sharing one provisioning target.
 
 ### Users and Approval
 
@@ -206,16 +221,16 @@ Renewal or administrator re-enable updates expiry and enabled state on all eligi
 
 - Continue hashing application user passwords.
 - Keep panel credentials server-side and exclude them from list APIs.
-- Prefer 3X-UI API tokens when available; retain session login compatibility.
+- Authenticate to 3X-UI with the existing server-side panel credentials; API-token support is deferred.
 - Support TLS certificate verification per panel, with insecure mode visibly marked.
-- Protect all provisioning and synchronization endpoints with administrator authorization and CSRF-resistant request handling appropriate to the existing session model.
+- Protect all provisioning and synchronization endpoints with administrator authorization. Mutating APIs require `Content-Type: application/json` and a same-origin `Origin` or `Referer` check in addition to the existing `HttpOnly; SameSite=Lax` session cookie.
 - Never place real credentials, panel URLs with secrets, or generated client UUIDs in source control.
 
 ## Database Migration
 
 The migration is additive and runs through the existing database initialization path:
 
-- create managed-client and synchronization-state tables
+- create managed-client, target usage ledger, and synchronization-state tables
 - add node mode and any required target metadata with backward-compatible defaults
 - create uniqueness and lookup indexes
 - preserve all existing users, plans, panels, nodes, usage records, sessions, and subscription tokens
@@ -229,14 +244,14 @@ Migration must be repeatable. Starting the upgraded application against an alrea
 - eligible-node filtering and target deduplication
 - deterministic remote labels and UUID handling
 - VLESS URI credential replacement without changing transport parameters
-- multiplier validation and weighted accounting
+- multiplier/client-flow validation and weighted accounting
 - remote counter reset handling
 - quota and expiry decisions
 - secret redaction
 
 ### API Adapter Tests
 
-Use fake HTTP responses for login/token authentication, list/get inbound, add client, update client, traffic lookup, empty mutation response, malformed response, timeout, TLS failure, and authentication failure. Verify post-mutation readback behavior.
+Use fake HTTP responses for session login, list/get inbound, add client, update client, traffic lookup, empty mutation response, malformed response, timeout, TLS failure, and authentication failure. Verify post-mutation readback behavior.
 
 ### Service Tests
 
@@ -244,6 +259,7 @@ Use fake HTTP responses for login/token authentication, list/get inbound, add cl
 - one-panel failure with other targets retained
 - retry after partial failure
 - repeated approval without duplicate clients
+- deterministic-label conflict with a different remote UUID
 - quota exhaustion disabling every target
 - partial disable failure and reconciliation
 - renewal and re-enable behavior
