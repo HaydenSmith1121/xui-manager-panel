@@ -99,8 +99,14 @@
               <h2>节点</h2>
               <input name="id" type="hidden">
               <label>名称<input name="name" required placeholder="美国 01"></label>
+              <label>节点模式<select name="mode">
+                <option value="managed">托管：注册后自动写入 X-UI 客户端</option>
+                <option value="static">静态：只聚合固定分享链接</option>
+              </select></label>
               <label>所属面板<select name="panel_id" id="nodePanel"><option value="">不绑定</option></select></label>
-              <label>X-UI 入站 ID<input name="inbound_id" type="number" min="0" step="1" value="0"></label>
+              <label>X-UI 入站 ID<input name="inbound_id" type="number" min="0" step="1" value="0" list="inboundOptions"></label>
+              <datalist id="inboundOptions"></datalist>
+              <button type="button" class="ghost" data-fetch-inbounds="selected">拉取所选面板入站</button>
               <label>倍率<input name="rate" type="number" min="0" step="0.1" value="1"></label>
               <label>标签<input name="tags" placeholder="us,premium"></label>
               <label>分享链接<textarea name="source_url" rows="6" required placeholder="vless://..."></textarea></label>
@@ -147,6 +153,11 @@
               <button id="panelSubmitBtn" type="submit">添加面板</button>
             </form>
           </div>
+          <form id="settingsForm" class="panel compact-form">
+            <h2>同步设置</h2>
+            <label>自动同步间隔 秒<input name="sync_interval_seconds" type="number" min="60" max="86400" step="60" value="300"></label>
+            <button type="submit">保存同步设置</button>
+          </form>
           <div class="split">
             <div class="list-panel">
               <h2>套餐列表</h2>

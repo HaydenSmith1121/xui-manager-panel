@@ -57,6 +57,37 @@ class FrontendTests(unittest.TestCase):
         self.assertIn('$("#loginForm").reset()', app_js)
         self.assertIn('showNotice("已退出登录")', app_js)
 
+    def test_frontend_exposes_managed_provisioning_actions(self):
+        root = Path(__file__).resolve().parents[1]
+        app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("data-retry-provision", app_js)
+        self.assertIn("data-reconcile-user", app_js)
+        self.assertIn("/api/admin/users/provision/retry", app_js)
+        self.assertIn("/api/admin/users/reconcile", app_js)
+        self.assertIn("provisioningSummary", app_js)
+
+    def test_frontend_exposes_panel_testing_and_inbound_picker(self):
+        root = Path(__file__).resolve().parents[1]
+        app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
+        index_html = (root / "static" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn("data-test-panel", app_js)
+        self.assertIn("data-fetch-inbounds", app_js)
+        self.assertIn("/api/admin/panels/test", app_js)
+        self.assertIn("/api/admin/panels/inbounds", app_js)
+        self.assertIn('id="inboundOptions"', index_html)
+
+    def test_frontend_exposes_sync_settings_form(self):
+        root = Path(__file__).resolve().parents[1]
+        app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
+        index_html = (root / "static" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="settingsForm"', index_html)
+        self.assertIn('name="sync_interval_seconds"', index_html)
+        self.assertIn("/api/admin/settings", app_js)
+        self.assertIn("renderSettings", app_js)
+
 
 if __name__ == "__main__":
     unittest.main()

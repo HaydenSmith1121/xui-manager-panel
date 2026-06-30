@@ -4,6 +4,8 @@ const state = {
   users: [],
   panels: [],
   nodes: [],
+  settings: {},
+  inbounds: [],
   view: "account",
 };
 
@@ -49,6 +51,18 @@ function quotaGb(plan) {
 function toDate(seconds) {
   if (!seconds) return "-";
   return new Date(Number(seconds) * 1000).toLocaleDateString();
+}
+
+function provisioningSummary(summary) {
+  if (!summary) return "";
+  const parts = [];
+  if ("provisioned" in summary) parts.push(`开通 ${summary.provisioned || 0}`);
+  if ("failed" in summary) parts.push(`失败 ${summary.failed || 0}`);
+  if ("pending" in summary) parts.push(`待处理 ${summary.pending || 0}`);
+  if ("missing" in summary) parts.push(`缺失 ${summary.missing || 0}`);
+  if ("extra" in summary) parts.push(`多余 ${summary.extra || 0}`);
+  if ("fixed" in summary) parts.push(`修复 ${summary.fixed || 0}`);
+  return parts.join("，") || "无变更";
 }
 
 function showNotice(message) {
@@ -112,16 +126,18 @@ async function refreshMe() {
 }
 
 async function refreshAdmin() {
-  const [users, plans, panels, nodes] = await Promise.all([
+  const [users, plans, panels, nodes, settings] = await Promise.all([
     api("/api/admin/users"),
     api("/api/admin/plans"),
     api("/api/admin/panels"),
     api("/api/admin/nodes"),
+    api("/api/admin/settings"),
   ]);
   state.users = users.users || [];
   state.plans = plans.plans || state.plans;
   state.panels = panels.panels || [];
   state.nodes = nodes.nodes || [];
+  state.settings = settings.settings || {};
   renderAdmin();
 }
 
@@ -157,6 +173,7 @@ function renderAdmin() {
   renderPanels();
   renderNodes();
   renderUsageOptions();
+  renderSettings();
 }
 
 function renderUsers() {
@@ -171,6 +188,8 @@ function renderUsers() {
         <td>${toDate(user.expire_at)}</td>
         <td><div class="actions">
           ${user.status === "pending" ? `<button data-approve="${user.id}">通过</button>` : ""}
+          <button class="ghost" data-retry-provision="${user.id}">重试开通</button>
+          <button class="ghost" data-reconcile-user="${user.id}">对账</button>
           ${user.status !== "disabled" ? `<button class="danger" data-status="${user.id}" data-value="disabled">停用</button>` : `<button data-status="${user.id}" data-value="active">启用</button>`}
         </div></td>
       </tr>`;
@@ -190,8 +209,8 @@ function renderPlans() {
 function renderPanels() {
   $("#panelList").innerHTML = state.panels
     .map((panel) => `<article class="row-card">
-      <header><strong>${escapeHtml(panel.name)}</strong><span class="row-actions"><button data-edit-panel="${panel.id}" class="ghost">编辑</button><button data-delete-panel="${panel.id}" class="danger">删除</button></span></header>
-      <span class="meta">${escapeHtml(panel.base_url)}</span>
+      <header><strong>${escapeHtml(panel.name)}</strong><span class="row-actions"><button data-test-panel="${panel.id}" class="ghost">测试</button><button data-fetch-inbounds="${panel.id}" class="ghost">入站</button><button data-edit-panel="${panel.id}" class="ghost">编辑</button><button data-delete-panel="${panel.id}" class="danger">删除</button></span></header>
+      <span class="meta">${escapeHtml(panel.base_url)}${panel.has_password ? " / 已保存密码" : " / 未保存密码"}</span>
     </article>`)
     .join("");
   $("#nodePanel").innerHTML = `<option value="">不绑定</option>` + state.panels.map((panel) => `<option value="${panel.id}">${escapeHtml(panel.name)}</option>`).join("");
@@ -201,9 +220,22 @@ function renderNodes() {
   $("#nodeList").innerHTML = state.nodes
     .map((node) => `<article class="row-card">
       <header><strong>${escapeHtml(node.name)}</strong><button data-edit-node="${node.id}" class="ghost">编辑</button></header>
-      <span class="meta">入站 ${node.inbound_id || 0} / 倍率 ${node.rate} / 标签: ${escapeHtml((node.tags || []).join(",") || "无")}</span>
+      <span class="meta">${node.mode === "managed" ? "托管" : "静态"} / 入站 ${node.inbound_id || 0} / 倍率 ${node.rate} / 标签: ${escapeHtml((node.tags || []).join(",") || "无")}</span>
       <span class="meta">${escapeHtml(String(node.source_url || "").slice(0, 150))}</span>
     </article>`)
+    .join("");
+}
+
+function renderSettings() {
+  const form = $("#settingsForm");
+  if (!form) return;
+  form.elements.sync_interval_seconds.value = state.settings.sync_interval_seconds || "300";
+}
+
+function renderInboundOptions(inbounds) {
+  state.inbounds = inbounds || [];
+  $("#inboundOptions").innerHTML = state.inbounds
+    .map((item) => `<option value="${item.id}" label="${escapeHtml(`${item.remark || "入站"} / ${item.protocol || "-"} / ${item.port || "-"}`)}"></option>`)
     .join("");
 }
 
@@ -252,6 +284,27 @@ function resetPanelForm() {
   resetFormMode($("#panelForm"), $("#panelFormTitle"), $("#panelSubmitBtn"), " X-UI 面板", "添加面板");
 }
 
+function resetNodeForm() {
+  $("#nodeForm").reset();
+  $("#nodeForm").elements.enabled.checked = true;
+  $("#nodeForm").elements.rate.value = "1";
+  $("#nodeForm").elements.inbound_id.value = "0";
+  $("#nodeForm").elements.mode.value = "managed";
+}
+
+async function fetchInboundsForPanel(panelId) {
+  if (!panelId) throw new Error("请先选择 X-UI 面板");
+  const data = await api("/api/admin/panels/inbounds", {
+    method: "POST",
+    body: JSON.stringify({ panel_id: panelId }),
+  });
+  renderInboundOptions(data.inbounds || []);
+  if (state.inbounds.length === 1) {
+    $("#nodeForm").elements.inbound_id.value = state.inbounds[0].id;
+  }
+  return state.inbounds.length;
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -283,7 +336,7 @@ function bindEvents() {
   $("#syncUsageBtn").addEventListener("click", async () => {
     const result = await api("/api/admin/sync-usage", { method: "POST", body: "{}" });
     await refreshAdmin();
-    showNotice(`同步完成：更新 ${result.updated || 0} 条${result.errors?.length ? "，有错误请检查面板配置" : ""}`);
+    showNotice(`同步完成：更新 ${result.synced || 0} 条，停用 ${result.disabled || 0} 个客户端${result.errors?.length ? "，有错误请检查面板配置" : ""}`);
   });
   $("#copySubBtn").addEventListener("click", async () => {
     await navigator.clipboard.writeText($("#subscriptionUrl").value);
@@ -322,12 +375,16 @@ function bindEvents() {
 
   $("#nodeForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
     await api("/api/admin/nodes", { method: "POST", body: JSON.stringify(formData(form)) });
-    form.reset();
-    form.elements.enabled.checked = true;
-    form.elements.rate.value = "1";
-    form.elements.inbound_id.value = "0";
+    resetNodeForm();
     await refreshAdmin();
     showNotice("节点已保存");
+  }));
+
+  $("#settingsForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
+    const data = await api("/api/admin/settings", { method: "POST", body: JSON.stringify(formData(form)) });
+    state.settings = data.settings || {};
+    renderSettings();
+    showNotice("同步设置已保存");
   }));
 
   $("#usageForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
@@ -340,9 +397,25 @@ function bindEvents() {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
     if (target.dataset.approve) {
-      await api("/api/admin/users/approve", { method: "POST", body: JSON.stringify({ user_id: target.dataset.approve }) });
+      const result = await api("/api/admin/users/approve", { method: "POST", body: JSON.stringify({ user_id: target.dataset.approve }) });
       await refreshAdmin();
-      showNotice("用户已通过");
+      showNotice(`用户已通过：${provisioningSummary(result.provisioning)}`);
+    }
+    if (target.dataset.retryProvision) {
+      const result = await api("/api/admin/users/provision/retry", {
+        method: "POST",
+        body: JSON.stringify({ user_id: target.dataset.retryProvision }),
+      });
+      await refreshAdmin();
+      showNotice(`重试完成：${provisioningSummary(result.provisioning)}`);
+    }
+    if (target.dataset.reconcileUser) {
+      const result = await api("/api/admin/users/reconcile", {
+        method: "POST",
+        body: JSON.stringify({ user_id: target.dataset.reconcileUser, apply: true }),
+      });
+      await refreshAdmin();
+      showNotice(`对账完成：${provisioningSummary(result.reconcile)}`);
     }
     if (target.dataset.status) {
       await api("/api/admin/users/status", {
@@ -369,6 +442,22 @@ function bindEvents() {
       });
       await refreshAdmin();
       showNotice("面板已删除");
+    }
+    if (target.dataset.testPanel) {
+      const result = await api("/api/admin/panels/test", {
+        method: "POST",
+        body: JSON.stringify({ panel_id: target.dataset.testPanel }),
+      });
+      showNotice(`面板连接正常：${result.inbound_count || 0} 个入站`);
+    }
+    if (target.dataset.fetchInbounds) {
+      const panelId = target.dataset.fetchInbounds === "selected" ? $("#nodePanel").value : target.dataset.fetchInbounds;
+      if (target.dataset.fetchInbounds !== "selected") {
+        $("#nodePanel").value = panelId;
+        setView("nodes");
+      }
+      const count = await fetchInboundsForPanel(panelId);
+      showNotice(`已拉取 ${count} 个入站`);
     }
     if (target.dataset.editPlan) {
       const plan = state.plans.find((item) => String(item.id) === target.dataset.editPlan);
@@ -397,6 +486,7 @@ async function boot() {
   bindEvents();
   resetPlanForm();
   resetPanelForm();
+  resetNodeForm();
   await refreshPublic();
   await refreshMe();
   setView("account");
