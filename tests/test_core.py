@@ -72,6 +72,26 @@ class DatabaseTests(unittest.TestCase):
             self.assertEqual(db.list_plans(), [])
             self.assertEqual(db.list_panels(), [])
 
+    def test_node_can_be_deleted_with_usage_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Database(Path(tmp) / "app.db")
+            db.init_schema()
+            plan_id = db.create_plan("Temporary", 100, 30, [], True)
+            user = db.register_user("user@example.com", "secret123", plan_id)
+            node_id = db.create_node(
+                "Temporary Node",
+                "vless://11111111-1111-1111-1111-111111111111@example.com:443?security=tls#Temp",
+                1,
+                [],
+                True,
+            )
+            db.record_usage(user["id"], node_id, bytes_from_gb(1), 0)
+
+            db.delete_node(node_id)
+
+            self.assertEqual(db.list_nodes(), [])
+            self.assertEqual(db.usage_for_user(user["id"]), [])
+
 
 class SubscriptionTests(unittest.TestCase):
     def test_subscription_uses_plan_quota_and_weighted_usage(self):

@@ -143,16 +143,23 @@ class XuiManagerApp:
             if not panel:
                 raise ValueError("panel not found")
             client = self.client_factory(panel["base_url"], panel.get("username", ""), panel.get("password", ""), bool(panel.get("verify_tls", True)))
-            client.login()
-            inbounds = [public_inbound(item) for item in client.list_inbounds()]
+            try:
+                client.login()
+                inbounds = [public_inbound(item) for item in client.list_inbounds()]
+            except Exception as exc:  # noqa: BLE001
+                return self.json_response({"error": f"X-UI inbounds fetch failed: {panel_error(exc, panel)}"}, 502)
             return self.json_response({"inbounds": inbounds})
         if method == "POST" and path == "/api/admin/panels/test":
             panel = next((item for item in self.db.list_panels() if item["id"] == int(payload["panel_id"])), None)
             if not panel:
                 raise ValueError("panel not found")
             client = self.client_factory(panel["base_url"], panel.get("username", ""), panel.get("password", ""), bool(panel.get("verify_tls", True)))
-            client.login()
-            return self.json_response({"ok": True, "inbound_count": len(client.list_inbounds())})
+            try:
+                client.login()
+                inbound_count = len(client.list_inbounds())
+            except Exception as exc:  # noqa: BLE001
+                return self.json_response({"ok": False, "error": f"X-UI panel test failed: {panel_error(exc, panel)}"}, 502)
+            return self.json_response({"ok": True, "inbound_count": inbound_count})
         if method == "POST" and path == "/api/admin/panels/delete":
             self.db.delete_panel(int(payload["id"]))
             return self.json_response({"deleted": True})
@@ -173,6 +180,9 @@ class XuiManagerApp:
             if payload.get("id"):
                 return self.json_response({"node": self.db.update_node(int(payload["id"]), *args)})
             return self.json_response({"id": self.db.create_node(*args)})
+        if method == "POST" and path == "/api/admin/nodes/delete":
+            self.db.delete_node(int(payload["id"]))
+            return self.json_response({"deleted": True})
         if method == "POST" and path == "/api/admin/usage":
             upload = bytes_from_gb(float(payload.get("upload_gb") or 0))
             download = bytes_from_gb(float(payload.get("download_gb") or 0))
@@ -271,6 +281,14 @@ def public_inbound(inbound: dict[str, Any]) -> dict[str, Any]:
         "protocol": str(inbound.get("protocol") or ""),
         "enabled": bool(inbound.get("enable", inbound.get("enabled", True))),
     }
+
+
+def panel_error(exc: Exception, panel: dict[str, Any]) -> str:
+    message = str(exc or "request failed") or exc.__class__.__name__
+    for secret in (panel.get("password"), panel.get("username")):
+        if secret:
+            message = message.replace(str(secret), "[redacted]")
+    return message[:200]
 
 
 def cookie_header(session: str) -> str:

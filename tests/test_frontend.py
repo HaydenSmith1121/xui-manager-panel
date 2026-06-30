@@ -32,6 +32,13 @@ class FrontendTests(unittest.TestCase):
         self.assertIn("/api/admin/plans/delete", app_js)
         self.assertIn("/api/admin/panels/delete", app_js)
 
+    def test_node_list_offers_delete_action(self):
+        app_js = (Path(__file__).resolve().parents[1] / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("data-delete-node", app_js)
+        self.assertIn("/api/admin/nodes/delete", app_js)
+        self.assertIn("节点已删除", app_js)
+
     def test_plan_and_panel_forms_have_explicit_create_modes(self):
         root = Path(__file__).resolve().parents[1]
         app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
@@ -87,6 +94,15 @@ class FrontendTests(unittest.TestCase):
         self.assertIn('name="sync_interval_seconds"', index_html)
         self.assertIn("/api/admin/settings", app_js)
         self.assertIn("renderSettings", app_js)
+
+    def test_panel_password_field_explains_blank_edit_behavior(self):
+        root = Path(__file__).resolve().parents[1]
+        app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
+        index_html = (root / "static" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="panelPasswordHelp"', index_html)
+        self.assertIn("留空保留已保存密码", index_html)
+        self.assertIn("panelPasswordHelp", app_js)
 
 
 if __name__ == "__main__":

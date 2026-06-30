@@ -218,6 +218,12 @@ p {
   color: var(--muted);
 }
 
+.field-help {
+  margin: -4px 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 label {
   display: grid;
   gap: 7px;

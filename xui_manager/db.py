@@ -580,6 +580,13 @@ class Database:
         with self.session() as conn:
             return [self._decode_node(row) for row in conn.execute(sql)]
 
+    def delete_node(self, node_id: int) -> None:
+        with self.session() as conn:
+            conn.execute("delete from usage_records where node_id=?", (int(node_id),))
+            result = conn.execute("delete from nodes where id=?", (int(node_id),))
+            if result.rowcount == 0:
+                raise ValueError("node not found")
+
     def record_usage(self, user_id: int, node_id: int, upload: int, download: int) -> None:
         now = int(time.time())
         with self.session() as conn:

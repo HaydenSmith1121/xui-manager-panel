@@ -219,7 +219,7 @@ function renderPanels() {
 function renderNodes() {
   $("#nodeList").innerHTML = state.nodes
     .map((node) => `<article class="row-card">
-      <header><strong>${escapeHtml(node.name)}</strong><button data-edit-node="${node.id}" class="ghost">编辑</button></header>
+      <header><strong>${escapeHtml(node.name)}</strong><span class="row-actions"><button data-edit-node="${node.id}" class="ghost">编辑</button><button data-delete-node="${node.id}" class="danger">删除</button></span></header>
       <span class="meta">${node.mode === "managed" ? "托管" : "静态"} / 入站 ${node.inbound_id || 0} / 倍率 ${node.rate} / 标签: ${escapeHtml((node.tags || []).join(",") || "无")}</span>
       <span class="meta">${escapeHtml(String(node.source_url || "").slice(0, 150))}</span>
     </article>`)
@@ -282,6 +282,7 @@ function resetPlanForm() {
 
 function resetPanelForm() {
   resetFormMode($("#panelForm"), $("#panelFormTitle"), $("#panelSubmitBtn"), " X-UI 面板", "添加面板");
+  $("#panelPasswordHelp").textContent = "新建面板时请填写密码；编辑已有面板时，留空保留已保存密码。";
 }
 
 function resetNodeForm() {
@@ -443,6 +444,15 @@ function bindEvents() {
       await refreshAdmin();
       showNotice("面板已删除");
     }
+    if (target.dataset.deleteNode) {
+      if (!window.confirm("确定删除这个节点吗？")) return;
+      await api("/api/admin/nodes/delete", {
+        method: "POST",
+        body: JSON.stringify({ id: target.dataset.deleteNode }),
+      });
+      await refreshAdmin();
+      showNotice("节点已删除");
+    }
     if (target.dataset.testPanel) {
       const result = await api("/api/admin/panels/test", {
         method: "POST",
@@ -473,6 +483,7 @@ function bindEvents() {
     if (target.dataset.editPanel) {
       const panel = state.panels.find((item) => String(item.id) === target.dataset.editPanel);
       setFormMode($("#panelForm"), $("#panelFormTitle"), $("#panelSubmitBtn"), " X-UI 面板", panel);
+      $("#panelPasswordHelp").textContent = panel.has_password ? "已保存密码；留空会继续使用原密码，输入新密码才会替换。" : "当前没有保存密码，请填写面板密码。";
       setView("settings");
     }
     if (target.dataset.editNode) {

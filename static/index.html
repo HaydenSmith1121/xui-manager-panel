@@ -146,7 +146,8 @@
               <label>名称<input name="name" required placeholder="RackNerd 美国"></label>
               <label>面板地址<input name="base_url" required placeholder="https://domain:port/path/"></label>
               <label>账号<input name="username" autocomplete="off"></label>
-              <label>密码<input name="password" type="password" autocomplete="new-password"></label>
+              <label>密码<input name="password" type="password" autocomplete="new-password" placeholder="新建时填写；编辑时留空保留已保存密码"></label>
+              <p id="panelPasswordHelp" class="field-help">编辑已有面板时，密码不会回显；留空保留已保存密码。</p>
               <label>面板订阅地址<input name="subscription_url" placeholder="可选"></label>
               <label class="check"><input name="verify_tls" type="checkbox" checked>校验证书</label>
               <label class="check"><input name="enabled" type="checkbox" checked>启用</label>

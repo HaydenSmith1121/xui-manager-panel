@@ -41,6 +41,11 @@ class FakePanelClient:
         return {"id": client_uuid, "email": email, "flow": flow, "enable": bool(enabled)}
 
 
+class ExplodingPanelClient(FakePanelClient):
+    def login(self):
+        raise RuntimeError(f"login failed for {self.username}:{self.password}")
+
+
 class ManagedAppTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -187,6 +192,54 @@ class ManagedAppTests(unittest.TestCase):
         self.assertEqual(payload["inbounds"][0], {"id": 1, "remark": "primary", "port": 443, "protocol": "vless", "enabled": True})
         self.assertNotIn("secret", response.body)
 
+    def test_panel_test_failure_returns_json_without_secrets(self):
+        app = XuiManagerApp(Path(self.tmp.name) / "bad-panel.db", client_factory=ExplodingPanelClient)
+        app.db.seed_admin("admin@example.com", "password123")
+        login = app.handle_json(
+            "POST",
+            "/api/login",
+            {},
+            json.dumps({"email": "admin@example.com", "password": "password123"}),
+        )
+        headers = {
+            "Cookie": login.headers["Set-Cookie"].split(";", 1)[0],
+            "Host": "manager.example.com",
+            "Content-Type": "application/json",
+        }
+        panel_id = app.db.create_panel("Panel", "https://panel.example.com", "admin", "stored-secret")
+
+        response = app.handle_json("POST", "/api/admin/panels/test", headers, json.dumps({"panel_id": panel_id}))
+        payload = json.loads(response.body)
+
+        self.assertEqual(response.status, 502)
+        self.assertFalse(payload["ok"])
+        self.assertIn("X-UI panel test failed", payload["error"])
+        self.assertNotIn("stored-secret", response.body)
+        self.assertNotIn("admin:stored-secret", response.body)
+
+    def test_panel_inbound_failure_returns_json_without_secrets(self):
+        app = XuiManagerApp(Path(self.tmp.name) / "bad-inbounds.db", client_factory=ExplodingPanelClient)
+        app.db.seed_admin("admin@example.com", "password123")
+        login = app.handle_json(
+            "POST",
+            "/api/login",
+            {},
+            json.dumps({"email": "admin@example.com", "password": "password123"}),
+        )
+        headers = {
+            "Cookie": login.headers["Set-Cookie"].split(";", 1)[0],
+            "Host": "manager.example.com",
+            "Content-Type": "application/json",
+        }
+        panel_id = app.db.create_panel("Panel", "https://panel.example.com", "admin", "stored-secret")
+
+        response = app.handle_json("POST", "/api/admin/panels/inbounds", headers, json.dumps({"panel_id": panel_id}))
+        payload = json.loads(response.body)
+
+        self.assertEqual(response.status, 502)
+        self.assertIn("X-UI inbounds fetch failed", payload["error"])
+        self.assertNotIn("stored-secret", response.body)
+
     def test_sync_usage_route_uses_managed_sync_service(self):
         response = self.post_admin("/api/admin/sync-usage", {})
         payload = json.loads(response.body)
@@ -194,6 +247,21 @@ class ManagedAppTests(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.assertIn("synced", payload)
         self.assertIn("disabled", payload)
+
+    def test_node_delete_route_removes_node(self):
+        node_id = self.app.db.create_node(
+            "Temporary",
+            "vless://template@example.com:443?security=tls#US",
+            1,
+            [],
+            True,
+        )
+
+        response = self.post_admin("/api/admin/nodes/delete", {"id": node_id})
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(json.loads(response.body), {"deleted": True})
+        self.assertEqual(self.app.db.list_nodes(), [])
 
     def test_mutating_admin_route_rejects_cross_origin_request(self):
         response = self.post_admin(
