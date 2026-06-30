@@ -100,7 +100,8 @@ class SubscriptionTests(unittest.TestCase):
 
         self.assertEqual(response.status, 200)
         self.assertIn("Subscription-Userinfo", response.headers)
-        self.assertIn("download=3221225472", response.headers["Subscription-Userinfo"])
+        self.assertIn("upload=3221225472", response.headers["Subscription-Userinfo"])
+        self.assertIn("download=0", response.headers["Subscription-Userinfo"])
         self.assertIn("total=1073741824000", response.headers["Subscription-Userinfo"])
         self.assertIn("Japan Premium", response.body)
 

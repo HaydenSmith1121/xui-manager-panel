@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .billing import usage_totals
+from .vless import replace_vless_uuid
 
 
 SHARE_LINK_RE = re.compile(r"(?im)\b(vless|vmess|trojan|ss)://[^\s]+")
@@ -26,16 +27,16 @@ def build_clash_subscription(db: Any, token: str) -> Response:
     if not user:
         return Response(404, "not found\n", {"Content-Type": "text/plain; charset=utf-8"})
     if user["status"] != "active":
-        return subscription_response([], 0, user.get("quota_bytes", 0), user.get("expire_at", 0), "Account inactive")
+        return subscription_response([], 0, 0, user.get("quota_bytes", 0), user.get("expire_at", 0), "Account inactive")
 
     totals = usage_totals(db, user["id"])
     used = totals["upload"] + totals["download"]
     quota = int(user.get("quota_bytes", 0) or 0)
     expire_at = int(user.get("expire_at", 0) or 0)
     if quota and used >= quota:
-        return subscription_response([], used, quota, expire_at, "Traffic exhausted")
+        return subscription_response([], totals["upload"], totals["download"], quota, expire_at, "Traffic exhausted")
     if expire_at and expire_at < int(time.time()):
-        return subscription_response([], used, quota, expire_at, "Expired")
+        return subscription_response([], totals["upload"], totals["download"], quota, expire_at, "Expired")
 
     plan = db.get_plan(user["plan_id"])
     allowed_tags = set(plan["allowed_tags"] if plan else [])
@@ -43,13 +44,26 @@ def build_clash_subscription(db: Any, token: str) -> Response:
     for node in db.list_nodes(enabled_only=True):
         if allowed_tags and not (allowed_tags & set(node["tags"])):
             continue
-        proxy = node_to_proxy(node)
+        client_uuid = None
+        if node.get("mode") == "managed":
+            managed = db.get_managed_client_for_target(user["id"], node["panel_id"], node["inbound_id"])
+            if not managed or managed["state"] != "provisioned" or not managed["desired_enabled"]:
+                continue
+            client_uuid = managed["client_uuid"]
+        proxy = node_to_proxy(node, client_uuid=client_uuid)
         if proxy:
             nodes.append(proxy)
-    return subscription_response(nodes, used, quota, expire_at, user["email"])
+    return subscription_response(nodes, totals["upload"], totals["download"], quota, expire_at, user["email"])
 
 
-def subscription_response(nodes: list[dict[str, Any]], used: int, quota: int, expire_at: int, title: str) -> Response:
+def subscription_response(
+    nodes: list[dict[str, Any]],
+    upload: int,
+    download: int,
+    quota: int,
+    expire_at: int,
+    title: str,
+) -> Response:
     group_name = "Proxy"
     names = [node["name"] for node in nodes]
     payload = {
@@ -67,7 +81,7 @@ def subscription_response(nodes: list[dict[str, Any]], used: int, quota: int, ex
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         {
             "Content-Type": "text/yaml; charset=utf-8",
-            "Subscription-Userinfo": f"upload=0; download={used}; total={quota}; expire={expire_at}",
+            "Subscription-Userinfo": f"upload={upload}; download={download}; total={quota}; expire={expire_at}",
             "Profile-Title": title_b64,
             "Profile-Update-Interval": "12",
             "Cache-Control": "no-store",
@@ -75,12 +89,13 @@ def subscription_response(nodes: list[dict[str, Any]], used: int, quota: int, ex
     )
 
 
-def node_to_proxy(node: dict[str, Any]) -> dict[str, Any] | None:
+def node_to_proxy(node: dict[str, Any], client_uuid: str | None = None) -> dict[str, Any] | None:
     source = node["source_url"].strip()
     links = extract_links(source)
     if not links:
         return None
-    proxy = share_link_to_proxy(links[0])
+    link = replace_vless_uuid(links[0], client_uuid) if client_uuid else links[0]
+    proxy = share_link_to_proxy(link)
     if proxy:
         proxy["name"] = node["name"]
     return proxy
