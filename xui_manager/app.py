@@ -73,6 +73,9 @@ class XuiManagerApp:
             if payload.get("id"):
                 return self.json_response({"plan": self.db.update_plan(int(payload["id"]), *args)})
             return self.json_response({"id": self.db.create_plan(*args)})
+        if method == "POST" and path == "/api/admin/plans/delete":
+            self.db.delete_plan(int(payload["id"]))
+            return self.json_response({"deleted": True})
         if method == "GET" and path == "/api/admin/panels":
             return self.json_response({"panels": self.db.list_panels()})
         if method == "POST" and path == "/api/admin/panels":
@@ -88,6 +91,9 @@ class XuiManagerApp:
             if payload.get("id"):
                 return self.json_response({"panel": self.db.update_panel(int(payload["id"]), *args)})
             return self.json_response({"id": self.db.create_panel(*args)})
+        if method == "POST" and path == "/api/admin/panels/delete":
+            self.db.delete_panel(int(payload["id"]))
+            return self.json_response({"deleted": True})
         if method == "GET" and path == "/api/admin/nodes":
             return self.json_response({"nodes": self.db.list_nodes()})
         if method == "POST" and path == "/api/admin/nodes":

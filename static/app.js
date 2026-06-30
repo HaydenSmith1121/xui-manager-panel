@@ -66,6 +66,30 @@ window.addEventListener("unhandledrejection", (event) => {
   event.preventDefault();
 });
 
+async function withSubmitState(event, action) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  if (form.dataset.submitting === "true") return;
+  const button = form.querySelector("button");
+  const originalText = button?.textContent || "";
+  form.dataset.submitting = "true";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "处理中...";
+  }
+  try {
+    await action(form);
+  } catch (error) {
+    showNotice(error?.message || "操作失败");
+  } finally {
+    delete form.dataset.submitting;
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
+}
+
 function setView(view) {
   state.view = view;
   $$(".nav-item").forEach((btn) => btn.classList.toggle("active", btn.dataset.view === view));
@@ -156,7 +180,7 @@ function renderUsers() {
 function renderPlans() {
   $("#planList").innerHTML = state.plans
     .map((plan) => `<article class="row-card">
-      <header><strong>${escapeHtml(plan.name)}</strong><button data-edit-plan="${plan.id}" class="ghost">编辑</button></header>
+      <header><strong>${escapeHtml(plan.name)}</strong><span class="row-actions"><button data-edit-plan="${plan.id}" class="ghost">编辑</button><button data-delete-plan="${plan.id}" class="danger">删除</button></span></header>
       <span class="meta">${formatBytes(plan.quota_bytes)} / ${plan.duration_days} 天 / 标签: ${escapeHtml((plan.allowed_tags || []).join(",") || "全部")}</span>
     </article>`)
     .join("");
@@ -165,7 +189,7 @@ function renderPlans() {
 function renderPanels() {
   $("#panelList").innerHTML = state.panels
     .map((panel) => `<article class="row-card">
-      <header><strong>${escapeHtml(panel.name)}</strong><button data-edit-panel="${panel.id}" class="ghost">编辑</button></header>
+      <header><strong>${escapeHtml(panel.name)}</strong><span class="row-actions"><button data-edit-panel="${panel.id}" class="ghost">编辑</button><button data-delete-panel="${panel.id}" class="danger">删除</button></span></header>
       <span class="meta">${escapeHtml(panel.base_url)}</span>
     </article>`)
     .join("");
@@ -228,55 +252,49 @@ function bindEvents() {
     showNotice("订阅链接已复制");
   });
 
-  $("#loginForm").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const data = await api("/api/login", { method: "POST", body: JSON.stringify(formData(event.currentTarget)) });
+  $("#loginForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
+    const data = await api("/api/login", { method: "POST", body: JSON.stringify(formData(form)) });
     state.me = data.user;
     setView("account");
     await refreshMe();
     showNotice("登录成功");
-  });
+  }));
 
-  $("#registerForm").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    await api("/api/register", { method: "POST", body: JSON.stringify(formData(event.currentTarget)) });
+  $("#registerForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
+    await api("/api/register", { method: "POST", body: JSON.stringify(formData(form)) });
     showNotice("申请已提交，等待管理员审核");
-    event.currentTarget.reset();
-  });
+    form.reset();
+  }));
 
-  $("#planForm").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    await api("/api/admin/plans", { method: "POST", body: JSON.stringify(formData(event.currentTarget)) });
-    event.currentTarget.reset();
+  $("#planForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
+    await api("/api/admin/plans", { method: "POST", body: JSON.stringify(formData(form)) });
+    form.reset();
     await refreshAdmin();
     showNotice("套餐已保存");
-  });
+  }));
 
-  $("#panelForm").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    await api("/api/admin/panels", { method: "POST", body: JSON.stringify(formData(event.currentTarget)) });
-    event.currentTarget.reset();
+  $("#panelForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
+    await api("/api/admin/panels", { method: "POST", body: JSON.stringify(formData(form)) });
+    form.reset();
     await refreshAdmin();
     showNotice("面板已保存");
-  });
+  }));
 
-  $("#nodeForm").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    await api("/api/admin/nodes", { method: "POST", body: JSON.stringify(formData(event.currentTarget)) });
-    event.currentTarget.reset();
-    event.currentTarget.elements.enabled.checked = true;
-    event.currentTarget.elements.rate.value = "1";
-    event.currentTarget.elements.inbound_id.value = "0";
+  $("#nodeForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
+    await api("/api/admin/nodes", { method: "POST", body: JSON.stringify(formData(form)) });
+    form.reset();
+    form.elements.enabled.checked = true;
+    form.elements.rate.value = "1";
+    form.elements.inbound_id.value = "0";
     await refreshAdmin();
     showNotice("节点已保存");
-  });
+  }));
 
-  $("#usageForm").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    await api("/api/admin/usage", { method: "POST", body: JSON.stringify(formData(event.currentTarget)) });
+  $("#usageForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
+    await api("/api/admin/usage", { method: "POST", body: JSON.stringify(formData(form)) });
     await refreshAdmin();
     showNotice("用量已保存");
-  });
+  }));
 
   document.addEventListener("click", async (event) => {
     const target = event.target;
@@ -293,6 +311,24 @@ function bindEvents() {
       });
       await refreshAdmin();
       showNotice("用户状态已更新");
+    }
+    if (target.dataset.deletePlan) {
+      if (!window.confirm("确定删除这个套餐吗？")) return;
+      await api("/api/admin/plans/delete", {
+        method: "POST",
+        body: JSON.stringify({ id: target.dataset.deletePlan }),
+      });
+      await refreshAdmin();
+      showNotice("套餐已删除");
+    }
+    if (target.dataset.deletePanel) {
+      if (!window.confirm("确定删除这个面板吗？")) return;
+      await api("/api/admin/panels/delete", {
+        method: "POST",
+        body: JSON.stringify({ id: target.dataset.deletePanel }),
+      });
+      await refreshAdmin();
+      showNotice("面板已删除");
     }
     if (target.dataset.editPlan) {
       const plan = state.plans.find((item) => String(item.id) === target.dataset.editPlan);

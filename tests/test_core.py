@@ -44,6 +44,34 @@ class DatabaseTests(unittest.TestCase):
             self.assertGreater(approved["expire_at"], 0)
             self.assertEqual(approved["quota_bytes"], bytes_from_gb(500))
 
+    def test_duplicate_plan_and_panel_are_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Database(Path(tmp) / "app.db")
+            db.init_schema()
+            db.create_plan("Standard", 100, 30, [], True)
+            db.create_panel("US Panel", "https://panel.example.com/base/", "admin", "secret")
+
+            with self.assertRaisesRegex(ValueError, "plan name already exists"):
+                db.create_plan("Standard", 200, 60, [], True)
+            with self.assertRaisesRegex(ValueError, "panel address already exists"):
+                db.create_panel("US Panel Copy", "https://panel.example.com/base", "admin", "secret")
+
+            self.assertEqual(len(db.list_plans()), 1)
+            self.assertEqual(len(db.list_panels()), 1)
+
+    def test_unused_plan_and_panel_can_be_deleted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Database(Path(tmp) / "app.db")
+            db.init_schema()
+            plan_id = db.create_plan("Temporary", 100, 30, [], True)
+            panel_id = db.create_panel("Temporary Panel", "https://panel.example.com/", "admin", "secret")
+
+            db.delete_plan(plan_id)
+            db.delete_panel(panel_id)
+
+            self.assertEqual(db.list_plans(), [])
+            self.assertEqual(db.list_panels(), [])
+
 
 class SubscriptionTests(unittest.TestCase):
     def test_subscription_uses_plan_quota_and_weighted_usage(self):

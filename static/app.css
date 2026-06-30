@@ -44,6 +44,11 @@ button:hover {
   background: var(--blue-dark);
 }
 
+button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 button.ghost {
   color: var(--text);
   background: #eef2f7;
@@ -129,12 +134,17 @@ button.danger {
 }
 
 .notice {
-  margin-bottom: 16px;
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 100;
+  width: min(420px, calc(100vw - 36px));
   border: 1px solid #c8dcff;
   border-radius: 8px;
   padding: 12px 14px;
   color: #164785;
   background: #eaf2ff;
+  box-shadow: 0 14px 34px rgba(20, 31, 48, 0.18);
 }
 
 .hidden {
@@ -337,6 +347,11 @@ td .actions {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.row-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .row-card strong {

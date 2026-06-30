@@ -142,7 +142,14 @@ class Database:
         require_approval: bool,
         enabled: bool = True,
     ) -> int:
+        name = name.strip()
+        if not name:
+            raise ValueError("plan name is required")
         with self.session() as conn:
+            conn.execute("begin immediate")
+            existing = conn.execute("select id from plans where lower(name)=lower(?)", (name,)).fetchone()
+            if existing:
+                raise ValueError("plan name already exists")
             cur = conn.execute(
                 """
                 insert into plans(name, quota_bytes, duration_days, allowed_tags, require_approval, enabled, created_at)
@@ -170,7 +177,14 @@ class Database:
         require_approval: bool,
         enabled: bool = True,
     ) -> dict[str, Any]:
+        name = name.strip()
         with self.session() as conn:
+            existing = conn.execute(
+                "select id from plans where lower(name)=lower(?) and id<>?",
+                (name, int(plan_id)),
+            ).fetchone()
+            if existing:
+                raise ValueError("plan name already exists")
             conn.execute(
                 """
                 update plans
@@ -191,6 +205,15 @@ class Database:
         if not plan:
             raise ValueError("plan not found")
         return plan
+
+    def delete_plan(self, plan_id: int) -> None:
+        with self.session() as conn:
+            in_use = conn.execute("select 1 from users where plan_id=? limit 1", (int(plan_id),)).fetchone()
+            if in_use:
+                raise ValueError("plan is in use")
+            result = conn.execute("delete from plans where id=?", (int(plan_id),))
+            if result.rowcount == 0:
+                raise ValueError("plan not found")
 
     def list_plans(self, enabled_only: bool = False) -> list[dict[str, Any]]:
         sql = "select * from plans"
@@ -322,7 +345,12 @@ class Database:
         verify_tls: bool = True,
         enabled: bool = True,
     ) -> int:
+        base_url = normalize_panel_url(base_url)
         with self.session() as conn:
+            conn.execute("begin immediate")
+            existing = conn.execute("select id from panels where lower(base_url)=lower(?)", (base_url,)).fetchone()
+            if existing:
+                raise ValueError("panel address already exists")
             cur = conn.execute(
                 """
                 insert into panels(name, base_url, username, password, subscription_url, verify_tls, enabled, created_at)
@@ -343,7 +371,14 @@ class Database:
         verify_tls: bool = True,
         enabled: bool = True,
     ) -> dict[str, Any]:
+        base_url = normalize_panel_url(base_url)
         with self.session() as conn:
+            existing = conn.execute(
+                "select id from panels where lower(base_url)=lower(?) and id<>?",
+                (base_url, int(panel_id)),
+            ).fetchone()
+            if existing:
+                raise ValueError("panel address already exists")
             conn.execute(
                 """
                 update panels
@@ -366,6 +401,15 @@ class Database:
             if not row:
                 raise ValueError("panel not found")
             return dict(row)
+
+    def delete_panel(self, panel_id: int) -> None:
+        with self.session() as conn:
+            in_use = conn.execute("select 1 from nodes where panel_id=? limit 1", (int(panel_id),)).fetchone()
+            if in_use:
+                raise ValueError("panel is in use")
+            result = conn.execute("delete from panels where id=?", (int(panel_id),))
+            if result.rowcount == 0:
+                raise ValueError("panel not found")
 
     def list_panels(self) -> list[dict[str, Any]]:
         with self.session() as conn:
@@ -468,3 +512,10 @@ class Database:
 
     def _decode_user(self, row: sqlite3.Row) -> dict[str, Any]:
         return dict(row)
+
+
+def normalize_panel_url(value: str) -> str:
+    value = value.strip()
+    if not value:
+        raise ValueError("panel address is required")
+    return value.rstrip("/") + "/"
