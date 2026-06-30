@@ -3,23 +3,36 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import time
 import urllib.parse
 from http import cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
 
-from .billing import bytes_from_gb, calculate_billable_usage
+from .billing import bytes_from_gb, usage_totals
 from .db import Database
+from .provisioning import ProvisioningService
 from .subscription import Response, build_clash_subscription
-from .xui_api import sync_usage_from_xui
+from .usage_sync import UsageSyncService
+from .xui_api import XuiClient
 
 
 class XuiManagerApp:
-    def __init__(self, db_path: str | Path, static_dir: str | Path | None = None):
+    def __init__(
+        self,
+        db_path: str | Path,
+        static_dir: str | Path | None = None,
+        client_factory=XuiClient,
+        now: Callable[[], float] | None = None,
+    ):
         self.db = Database(db_path)
         self.db.init_schema()
         self.static_dir = Path(static_dir or Path(__file__).resolve().parents[1] / "static")
+        self.client_factory = client_factory
+        clock = now or time.time
+        self.provisioning = ProvisioningService(self.db, client_factory, now=clock)
+        self.usage_sync = UsageSyncService(self.db, self.provisioning, client_factory, now=clock)
 
     def handle_json(self, method: str, path: str, headers: dict[str, str], body: str) -> Response:
         try:
@@ -31,7 +44,13 @@ class XuiManagerApp:
                 return self.json_response({"plans": self.db.list_plans(enabled_only=True)})
             if method == "POST" and path == "/api/register":
                 user = self.db.register_user(payload["email"], payload["password"], int(payload["plan_id"]))
-                return self.json_response({"user": self.user_summary(user, headers)})
+                provisioning = None
+                if user["status"] == "active":
+                    provisioning = self.provisioning.provision_user(user["id"])
+                data = {"user": self.user_summary(user, headers)}
+                if provisioning is not None:
+                    data["provisioning"] = provisioning
+                return self.json_response(data)
             if method == "POST" and path == "/api/login":
                 user = self.db.authenticate(payload["email"], payload["password"])
                 if not user:
@@ -48,6 +67,10 @@ class XuiManagerApp:
                 user = self.require_admin(headers)
                 if isinstance(user, Response):
                     return user
+                if method == "POST":
+                    guard = self.require_admin_mutation_headers(headers)
+                    if guard:
+                        return guard
                 return self.handle_admin(method, path, headers, payload)
         except KeyError as exc:
             return self.json_response({"error": f"Missing field: {exc.args[0]}"}, 400)
@@ -59,7 +82,21 @@ class XuiManagerApp:
         if method == "GET" and path == "/api/admin/users":
             return self.json_response({"users": [self.user_summary(user, headers) for user in self.db.list_users()]})
         if method == "POST" and path == "/api/admin/users/approve":
-            return self.json_response({"user": self.user_summary(self.db.approve_user(int(payload["user_id"])), headers)})
+            existing = self.db.get_user(int(payload["user_id"]))
+            if not existing:
+                raise ValueError("user not found")
+            if existing["status"] == "active" and not bool(payload.get("renew", False)):
+                user = existing
+            else:
+                user = self.db.approve_user(int(payload["user_id"]))
+                if bool(payload.get("renew", False)) and bool(payload.get("reset_usage", False)):
+                    self.db.reset_managed_usage(user["id"])
+            provisioning = self.provisioning.provision_user(user["id"])
+            return self.json_response({"user": self.user_summary(user, headers), "provisioning": provisioning})
+        if method == "POST" and path == "/api/admin/users/provision/retry":
+            return self.json_response({"provisioning": self.provisioning.retry_user(int(payload["user_id"]))})
+        if method == "POST" and path == "/api/admin/users/reconcile":
+            return self.json_response({"reconcile": self.provisioning.reconcile_user(int(payload["user_id"]), bool(payload.get("apply", False)))})
         if method == "POST" and path == "/api/admin/users/status":
             return self.json_response({"user": self.user_summary(self.db.update_user_status(int(payload["user_id"]), payload["status"]), headers)})
         if method == "GET" and path == "/api/admin/plans":
@@ -80,20 +117,41 @@ class XuiManagerApp:
             self.db.delete_plan(int(payload["id"]))
             return self.json_response({"deleted": True})
         if method == "GET" and path == "/api/admin/panels":
-            return self.json_response({"panels": self.db.list_panels()})
+            return self.json_response({"panels": [public_panel(panel) for panel in self.db.list_panels()]})
         if method == "POST" and path == "/api/admin/panels":
+            password = payload.get("password", "")
+            if payload.get("id") and not password:
+                existing = next((panel for panel in self.db.list_panels() if panel["id"] == int(payload["id"])), None)
+                if not existing:
+                    raise ValueError("panel not found")
+                password = existing["password"]
             args = (
                 payload["name"],
                 payload["base_url"],
                 payload.get("username", ""),
-                payload.get("password", ""),
+                password,
                 payload.get("subscription_url", ""),
                 bool(payload.get("verify_tls", True)),
                 bool(payload.get("enabled", True)),
             )
             if payload.get("id"):
-                return self.json_response({"panel": self.db.update_panel(int(payload["id"]), *args)})
+                return self.json_response({"panel": public_panel(self.db.update_panel(int(payload["id"]), *args))})
             return self.json_response({"id": self.db.create_panel(*args)})
+        if method == "POST" and path == "/api/admin/panels/inbounds":
+            panel = next((item for item in self.db.list_panels() if item["id"] == int(payload["panel_id"])), None)
+            if not panel:
+                raise ValueError("panel not found")
+            client = self.client_factory(panel["base_url"], panel.get("username", ""), panel.get("password", ""), bool(panel.get("verify_tls", True)))
+            client.login()
+            inbounds = [public_inbound(item) for item in client.list_inbounds()]
+            return self.json_response({"inbounds": inbounds})
+        if method == "POST" and path == "/api/admin/panels/test":
+            panel = next((item for item in self.db.list_panels() if item["id"] == int(payload["panel_id"])), None)
+            if not panel:
+                raise ValueError("panel not found")
+            client = self.client_factory(panel["base_url"], panel.get("username", ""), panel.get("password", ""), bool(panel.get("verify_tls", True)))
+            client.login()
+            return self.json_response({"ok": True, "inbound_count": len(client.list_inbounds())})
         if method == "POST" and path == "/api/admin/panels/delete":
             self.db.delete_panel(int(payload["id"]))
             return self.json_response({"deleted": True})
@@ -109,6 +167,7 @@ class XuiManagerApp:
                 bool(payload.get("enabled", True)),
                 panel_id,
                 int(payload.get("inbound_id") or 0),
+                payload.get("mode", "static"),
             )
             if payload.get("id"):
                 return self.json_response({"node": self.db.update_node(int(payload["id"]), *args)})
@@ -120,7 +179,13 @@ class XuiManagerApp:
             user = self.db.get_user(int(payload["user_id"]))
             return self.json_response({"user": self.user_summary(user, headers)})
         if method == "POST" and path == "/api/admin/sync-usage":
-            return self.json_response(sync_usage_from_xui(self.db))
+            return self.json_response(self.usage_sync.sync_all())
+        if method == "GET" and path == "/api/admin/settings":
+            return self.json_response({"settings": {"sync_interval_seconds": self.db.get_setting("sync_interval_seconds", "300")}})
+        if method == "POST" and path == "/api/admin/settings":
+            for key, value in payload.items():
+                self.db.set_setting(str(key), value)
+            return self.json_response({"settings": {"sync_interval_seconds": self.db.get_setting("sync_interval_seconds", "300")}})
         return self.json_response({"error": "Not found"}, 404)
 
     def subscription(self, token: str) -> Response:
@@ -147,11 +212,29 @@ class XuiManagerApp:
             return self.json_response({"error": "Admin required"}, 403)
         return user
 
+    def require_admin_mutation_headers(self, headers: dict[str, str]) -> Response | None:
+        content_type = headers.get("Content-Type", "")
+        if content_type and "application/json" not in content_type.lower():
+            return self.json_response({"error": "JSON required"}, 415)
+        origin = headers.get("Origin") or ""
+        referer = headers.get("Referer") or ""
+        source = origin or referer
+        if not source:
+            return None
+        source_host = urllib.parse.urlparse(source).netloc
+        target_host = headers.get("X-Forwarded-Host") or headers.get("Host") or ""
+        if source_host and target_host and source_host.lower() != target_host.lower():
+            return self.json_response({"error": "Cross-origin admin request rejected"}, 403)
+        return None
+
     def user_summary(self, user: dict[str, Any], headers: dict[str, str] | None = None) -> dict[str, Any]:
         data = public_user(user)
-        used = calculate_billable_usage(self.db.usage_for_user(user["id"]))
+        totals = usage_totals(self.db, user["id"])
+        used = totals["upload"] + totals["download"]
         quota = int(user.get("quota_bytes") or 0)
         data["used_bytes"] = used
+        data["upload_bytes"] = totals["upload"]
+        data["download_bytes"] = totals["download"]
         data["remaining_bytes"] = max(quota - used, 0) if quota else 0
         data["subscription_url"] = subscription_url(user["token"], headers or {}) if user.get("token") else ""
         return data
@@ -168,6 +251,24 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
         key: value
         for key, value in user.items()
         if key not in {"password_hash"}
+    }
+
+
+def public_panel(panel: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in panel.items()
+        if key != "password"
+    } | {"has_password": bool(panel.get("password"))}
+
+
+def public_inbound(inbound: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": int(inbound.get("id") or 0),
+        "remark": str(inbound.get("remark") or ""),
+        "port": int(inbound.get("port") or 0),
+        "protocol": str(inbound.get("protocol") or ""),
+        "enabled": bool(inbound.get("enable", inbound.get("enabled", True))),
     }
 
 

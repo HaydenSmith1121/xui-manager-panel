@@ -1,0 +1,209 @@
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from xui_manager.app import XuiManagerApp
+
+
+class FakePanelClient:
+    def __init__(self, base_url, username, password, verify_tls=True):
+        self.base_url = base_url
+        self.username = username
+        self.password = password
+        self.verify_tls = verify_tls
+
+    def login(self):
+        if self.password == "bad":
+            raise RuntimeError("login failed")
+
+    def list_inbounds(self):
+        return [
+            {"id": 1, "remark": "primary", "port": 443, "protocol": "vless", "enable": True},
+            {"id": 2, "remark": "trojan", "port": 8443, "protocol": "trojan", "enable": False},
+        ]
+
+    def get_inbound(self, inbound_id):
+        return {
+            "id": int(inbound_id),
+            "protocol": "vless",
+            "settings": json.dumps({"clients": []}),
+            "clientStats": [],
+        }
+
+    def find_client(self, inbound, email):
+        return None
+
+    def add_vless_client(self, *, inbound_id, client_uuid, email, flow, expire_at):
+        return {"id": client_uuid, "email": email, "flow": flow, "enable": True}
+
+    def update_vless_client(self, *, inbound_id, client_uuid, email, flow, expire_at, enabled):
+        return {"id": client_uuid, "email": email, "flow": flow, "enable": bool(enabled)}
+
+
+class ManagedAppTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.app = XuiManagerApp(Path(self.tmp.name) / "app.db", client_factory=FakePanelClient)
+        self.admin = self.app.db.seed_admin("admin@example.com", "password123")
+        login = self.app.handle_json(
+            "POST",
+            "/api/login",
+            {},
+            json.dumps({"email": "admin@example.com", "password": "password123"}),
+        )
+        self.headers = {
+            "Cookie": login.headers["Set-Cookie"].split(";", 1)[0],
+            "Host": "manager.example.com",
+            "Content-Type": "application/json",
+        }
+
+    def post_admin(self, path, payload, headers=None):
+        merged = dict(self.headers)
+        if headers:
+            merged.update(headers)
+        return self.app.handle_json("POST", path, merged, json.dumps(payload))
+
+    def test_approve_returns_provisioning_summary(self):
+        plan_id = self.app.db.create_plan("Premium", 100, 30, ["premium"], True)
+        user = self.app.db.register_user("user@example.com", "secret123", plan_id)
+        panel_id = self.app.db.create_panel("Panel", "https://panel.example.com", "admin", "secret")
+        self.app.db.create_node(
+            "Managed",
+            "vless://template@example.com:443?security=tls#US",
+            1,
+            ["premium"],
+            True,
+            panel_id,
+            1,
+            "managed",
+        )
+
+        response = self.post_admin("/api/admin/users/approve", {"user_id": user["id"]})
+        payload = json.loads(response.body)
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(payload["provisioning"], {"provisioned": 1, "failed": 0, "pending": 0})
+        self.assertEqual(payload["user"]["status"], "active")
+
+    def test_auto_active_registration_runs_provisioning(self):
+        plan_id = self.app.db.create_plan("Instant", 100, 30, ["premium"], False)
+        panel_id = self.app.db.create_panel("Panel", "https://panel.example.com", "admin", "secret")
+        self.app.db.create_node(
+            "Managed",
+            "vless://template@example.com:443?security=tls#US",
+            1,
+            ["premium"],
+            True,
+            panel_id,
+            1,
+            "managed",
+        )
+
+        response = self.app.handle_json(
+            "POST",
+            "/api/register",
+            {"Host": "manager.example.com"},
+            json.dumps({"email": "instant@example.com", "password": "secret123", "plan_id": plan_id}),
+        )
+        payload = json.loads(response.body)
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(payload["user"]["status"], "active")
+        self.assertEqual(payload["provisioning"], {"provisioned": 1, "failed": 0, "pending": 0})
+
+    def test_repeated_approve_does_not_renew_without_flag_and_reset_requires_renewal(self):
+        plan_id = self.app.db.create_plan("Premium", 100, 30, ["premium"], True)
+        user = self.app.db.register_user("user@example.com", "secret123", plan_id)
+        first = json.loads(self.post_admin("/api/admin/users/approve", {"user_id": user["id"]}).body)["user"]
+        self.app.db.reset_managed_usage(user["id"])
+
+        second = json.loads(
+            self.post_admin(
+                "/api/admin/users/approve",
+                {"user_id": user["id"], "reset_usage": True},
+            ).body
+        )["user"]
+
+        self.assertEqual(second["expire_at"], first["expire_at"])
+
+        renewed = json.loads(
+            self.post_admin(
+                "/api/admin/users/approve",
+                {"user_id": user["id"], "renew": True, "reset_usage": True},
+            ).body
+        )["user"]
+        self.assertGreaterEqual(renewed["expire_at"], first["expire_at"])
+
+    def test_retry_reconcile_panel_test_and_settings_routes(self):
+        panel_id = self.app.db.create_panel("Panel", "https://panel.example.com", "admin", "secret")
+
+        retry = self.post_admin("/api/admin/users/provision/retry", {"user_id": self.admin["id"]})
+        preview = self.post_admin("/api/admin/users/reconcile", {"user_id": self.admin["id"], "apply": False})
+        panel_test = self.post_admin("/api/admin/panels/test", {"panel_id": panel_id})
+        settings_post = self.post_admin("/api/admin/settings", {"sync_interval_seconds": 120})
+        settings_get = self.app.handle_json("GET", "/api/admin/settings", self.headers, "")
+
+        self.assertEqual(retry.status, 400)  # admin has no plan, but route exists and validates cleanly
+        self.assertEqual(preview.status, 400)
+        self.assertEqual(json.loads(panel_test.body)["ok"], True)
+        self.assertEqual(settings_post.status, 200)
+        self.assertEqual(json.loads(settings_get.body)["settings"]["sync_interval_seconds"], "120")
+
+    def test_panel_list_never_returns_password_and_blank_update_preserves_password(self):
+        panel_id = self.app.db.create_panel("Panel", "https://panel.example.com", "admin", "stored-secret")
+
+        listing = self.app.handle_json("GET", "/api/admin/panels", self.headers, "")
+        panel = json.loads(listing.body)["panels"][0]
+        self.assertNotIn("password", panel)
+        self.assertTrue(panel["has_password"])
+
+        update = self.post_admin(
+            "/api/admin/panels",
+            {
+                "id": panel_id,
+                "name": "Panel 2",
+                "base_url": "https://panel.example.com",
+                "username": "admin2",
+                "password": "",
+                "subscription_url": "",
+                "verify_tls": True,
+                "enabled": True,
+            },
+        )
+
+        self.assertEqual(update.status, 200)
+        self.assertEqual(self.app.db.list_panels()[0]["password"], "stored-secret")
+        self.assertNotIn("password", json.loads(update.body)["panel"])
+
+    def test_panel_inbounds_are_public_and_redacted(self):
+        panel_id = self.app.db.create_panel("Panel", "https://panel.example.com", "admin", "secret")
+
+        response = self.post_admin("/api/admin/panels/inbounds", {"panel_id": panel_id})
+        payload = json.loads(response.body)
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(payload["inbounds"][0], {"id": 1, "remark": "primary", "port": 443, "protocol": "vless", "enabled": True})
+        self.assertNotIn("secret", response.body)
+
+    def test_sync_usage_route_uses_managed_sync_service(self):
+        response = self.post_admin("/api/admin/sync-usage", {})
+        payload = json.loads(response.body)
+
+        self.assertEqual(response.status, 200)
+        self.assertIn("synced", payload)
+        self.assertIn("disabled", payload)
+
+    def test_mutating_admin_route_rejects_cross_origin_request(self):
+        response = self.post_admin(
+            "/api/admin/plans",
+            {"name": "Bad", "quota_gb": 1, "duration_days": 1},
+            headers={"Origin": "https://evil.example.com"},
+        )
+
+        self.assertEqual(response.status, 403)
+
+
+if __name__ == "__main__":
+    unittest.main()
