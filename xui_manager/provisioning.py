@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import re
 import time
+import logging
 from typing import Any
 
 from .vless import eligible_managed_nodes, group_managed_targets, validate_target_nodes
 from .xui_api import XuiClient
+
+
+logger = logging.getLogger(__name__)
 
 
 class ProvisioningService:
@@ -61,6 +65,25 @@ class ProvisioningService:
             "failed": sum(1 for item in clients if item["state"] == "failed"),
             "pending": sum(1 for item in clients if item["state"] == "pending"),
         }
+
+    def failure_details_for_user(self, user_id: int) -> list[dict[str, Any]]:
+        panels = self._panels_by_id()
+        failed = self.db.list_managed_clients(user_id=user_id, states=["failed"])
+        details: list[dict[str, Any]] = []
+        for client in failed:
+            panel = panels.get(int(client["panel_id"])) or {}
+            details.append(
+                {
+                    "panel_id": client["panel_id"],
+                    "panel_name": panel.get("name") or f"Panel {client['panel_id']}",
+                    "inbound_id": client["inbound_id"],
+                    "remote_email": client["remote_email"],
+                    "attempt_count": client["attempt_count"],
+                    "last_attempt_at": client["last_attempt_at"],
+                    "error": client["last_error"] or "provisioning failed",
+                }
+            )
+        return details
 
     def _active_user(self, user_id: int) -> dict[str, Any]:
         user = self.db.get_user(user_id)
@@ -156,11 +179,19 @@ class ProvisioningService:
                 error="",
             )
         except Exception as exc:  # noqa: BLE001
+            error = self._sanitize_error(str(exc), target["panel"])
             self.db.update_managed_client_result(
                 managed["id"],
                 state="failed",
                 remote_enabled=False,
-                error=self._sanitize_error(str(exc), target["panel"]),
+                error=error,
+            )
+            logger.warning(
+                "Provisioning failed for panel_id=%s inbound_id=%s managed_client_id=%s: %s",
+                target["panel_id"],
+                target["inbound_id"],
+                managed["id"],
+                error,
             )
 
     def _client_for_panel(self, panel: dict[str, Any]):

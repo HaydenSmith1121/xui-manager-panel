@@ -156,6 +156,49 @@ class ManagedAppTests(unittest.TestCase):
         self.assertEqual(settings_post.status, 200)
         self.assertEqual(json.loads(settings_get.body)["settings"]["sync_interval_seconds"], "120")
 
+    def test_retry_returns_failed_target_details_without_panel_secrets(self):
+        app = XuiManagerApp(Path(self.tmp.name) / "retry-errors.db", client_factory=ExplodingPanelClient)
+        admin = app.db.seed_admin("admin@example.com", "password123")
+        login = app.handle_json(
+            "POST",
+            "/api/login",
+            {},
+            json.dumps({"email": admin["email"], "password": "password123"}),
+        )
+        headers = {
+            "Cookie": login.headers["Set-Cookie"].split(";", 1)[0],
+            "Host": "manager.example.com",
+            "Content-Type": "application/json",
+        }
+        plan_id = app.db.create_plan("Premium", 100, 30, [], True)
+        user = app.db.approve_user(app.db.register_user("user@example.com", "secret123", plan_id)["id"])
+        panel_id = app.db.create_panel("Korea", "https://panel.example.com", "admin", "stored-secret")
+        app.db.create_node(
+            "Korea Managed",
+            "vless://template@example.com:443?security=tls#KR",
+            1,
+            [],
+            True,
+            panel_id,
+            1,
+            "managed",
+        )
+
+        response = app.handle_json(
+            "POST",
+            "/api/admin/users/provision/retry",
+            headers,
+            json.dumps({"user_id": user["id"]}),
+        )
+        payload = json.loads(response.body)
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(payload["provisioning"], {"provisioned": 0, "failed": 1, "pending": 0})
+        self.assertEqual(payload["errors"][0]["panel_name"], "Korea")
+        self.assertEqual(payload["errors"][0]["inbound_id"], 1)
+        self.assertIn("login failed", payload["errors"][0]["error"])
+        self.assertNotIn("stored-secret", response.body)
+
     def test_panel_list_never_returns_password_and_blank_update_preserves_password(self):
         panel_id = self.app.db.create_panel("Panel", "https://panel.example.com", "admin", "stored-secret")
 

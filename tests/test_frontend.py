@@ -81,6 +81,8 @@ class FrontendTests(unittest.TestCase):
         self.assertIn("/api/admin/users/provision/retry", app_js)
         self.assertIn("/api/admin/users/reconcile", app_js)
         self.assertIn("provisioningSummary", app_js)
+        self.assertIn("provisioningErrorSummary", app_js)
+        self.assertIn("provisioning_errors", app_js)
 
     def test_frontend_exposes_panel_testing_and_inbound_picker(self):
         root = Path(__file__).resolve().parents[1]

@@ -391,6 +391,14 @@ td .actions {
   overflow-wrap: anywhere;
 }
 
+.error-text {
+  max-width: 340px;
+  margin-top: 4px;
+  color: var(--red);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 920px) {
   .shell {
     grid-template-columns: 1fr;

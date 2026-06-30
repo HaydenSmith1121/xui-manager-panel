@@ -65,12 +65,24 @@ function provisioningSummary(summary) {
   return parts.join("，") || "无变更";
 }
 
+function provisioningErrorSummary(errors) {
+  if (!errors?.length) return "";
+  return errors
+    .map((item) => `${item.panel_name || `面板 ${item.panel_id}`} / 入站 ${item.inbound_id}: ${item.error || "开通失败"}`)
+    .join("；");
+}
+
+function provisioningNotice(prefix, summary, errors) {
+  const details = provisioningErrorSummary(errors);
+  return `${prefix}：${provisioningSummary(summary)}${details ? `；失败详情：${details}` : ""}`;
+}
+
 function showNotice(message) {
   const box = $("#notice");
   box.textContent = message;
   box.classList.remove("hidden");
   clearTimeout(showNotice.timer);
-  showNotice.timer = setTimeout(() => box.classList.add("hidden"), 3200);
+  showNotice.timer = setTimeout(() => box.classList.add("hidden"), message.length > 60 ? 9000 : 3200);
 }
 
 async function copyTextFromInput(input) {
@@ -193,12 +205,18 @@ function renderUsers() {
   $("#userRows").innerHTML = state.users
     .map((user) => {
       const plan = state.plans.find((item) => item.id === user.plan_id);
+      const provisionText = provisioningSummary(user.provisioning);
+      const errorText = provisioningErrorSummary(user.provisioning_errors);
       return `<tr>
         <td>${escapeHtml(user.email)}</td>
         <td><span class="status ${user.status}">${user.status}</span></td>
         <td>${escapeHtml(plan?.name || "-")}</td>
         <td>${formatBytes(user.used_bytes)} / ${formatBytes(user.quota_bytes)}</td>
         <td>${toDate(user.expire_at)}</td>
+        <td>
+          <div class="meta">${escapeHtml(provisionText || "-")}</div>
+          ${errorText ? `<div class="error-text">${escapeHtml(errorText)}</div>` : ""}
+        </td>
         <td><div class="actions">
           ${user.status === "pending" ? `<button data-approve="${user.id}">通过</button>` : ""}
           <button class="ghost" data-retry-provision="${user.id}">重试开通</button>
@@ -413,7 +431,7 @@ function bindEvents() {
     if (target.dataset.approve) {
       const result = await api("/api/admin/users/approve", { method: "POST", body: JSON.stringify({ user_id: target.dataset.approve }) });
       await refreshAdmin();
-      showNotice(`用户已通过：${provisioningSummary(result.provisioning)}`);
+      showNotice(provisioningNotice("用户已通过", result.provisioning, result.errors));
     }
     if (target.dataset.retryProvision) {
       const result = await api("/api/admin/users/provision/retry", {
@@ -421,7 +439,7 @@ function bindEvents() {
         body: JSON.stringify({ user_id: target.dataset.retryProvision }),
       });
       await refreshAdmin();
-      showNotice(`重试完成：${provisioningSummary(result.provisioning)}`);
+      showNotice(provisioningNotice("重试完成", result.provisioning, result.errors));
     }
     if (target.dataset.reconcileUser) {
       const result = await api("/api/admin/users/reconcile", {
@@ -429,7 +447,7 @@ function bindEvents() {
         body: JSON.stringify({ user_id: target.dataset.reconcileUser, apply: true }),
       });
       await refreshAdmin();
-      showNotice(`对账完成：${provisioningSummary(result.reconcile)}`);
+      showNotice(provisioningNotice("对账完成", result.reconcile, result.errors));
     }
     if (target.dataset.status) {
       await api("/api/admin/users/status", {

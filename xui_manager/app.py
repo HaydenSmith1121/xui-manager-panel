@@ -81,7 +81,7 @@ class XuiManagerApp:
 
     def handle_admin(self, method: str, path: str, headers: dict[str, str], payload: dict[str, Any]) -> Response:
         if method == "GET" and path == "/api/admin/users":
-            return self.json_response({"users": [self.user_summary(user, headers) for user in self.db.list_users()]})
+            return self.json_response({"users": [self.admin_user_summary(user, headers) for user in self.db.list_users()]})
         if method == "POST" and path == "/api/admin/users/approve":
             existing = self.db.get_user(int(payload["user_id"]))
             if not existing:
@@ -93,11 +93,29 @@ class XuiManagerApp:
                 if bool(payload.get("renew", False)) and bool(payload.get("reset_usage", False)):
                     self.db.reset_managed_usage(user["id"])
             provisioning = self.provisioning.provision_user(user["id"])
-            return self.json_response({"user": self.user_summary(user, headers), "provisioning": provisioning})
+            return self.json_response(
+                {
+                    "user": self.admin_user_summary(user, headers),
+                    "provisioning": provisioning,
+                    "errors": self.provisioning.failure_details_for_user(user["id"]),
+                }
+            )
         if method == "POST" and path == "/api/admin/users/provision/retry":
-            return self.json_response({"provisioning": self.provisioning.retry_user(int(payload["user_id"]))})
+            user_id = int(payload["user_id"])
+            return self.json_response(
+                {
+                    "provisioning": self.provisioning.retry_user(user_id),
+                    "errors": self.provisioning.failure_details_for_user(user_id),
+                }
+            )
         if method == "POST" and path == "/api/admin/users/reconcile":
-            return self.json_response({"reconcile": self.provisioning.reconcile_user(int(payload["user_id"]), bool(payload.get("apply", False)))})
+            user_id = int(payload["user_id"])
+            return self.json_response(
+                {
+                    "reconcile": self.provisioning.reconcile_user(user_id, bool(payload.get("apply", False))),
+                    "errors": self.provisioning.failure_details_for_user(user_id),
+                }
+            )
         if method == "POST" and path == "/api/admin/users/status":
             return self.json_response({"user": self.user_summary(self.db.update_user_status(int(payload["user_id"]), payload["status"]), headers)})
         if method == "GET" and path == "/api/admin/plans":
@@ -248,6 +266,12 @@ class XuiManagerApp:
         data["download_bytes"] = totals["download"]
         data["remaining_bytes"] = max(quota - used, 0) if quota else 0
         data["subscription_url"] = subscription_url(user["token"], headers or {}) if user.get("token") else ""
+        return data
+
+    def admin_user_summary(self, user: dict[str, Any], headers: dict[str, str] | None = None) -> dict[str, Any]:
+        data = self.user_summary(user, headers)
+        data["provisioning"] = self.provisioning.status_for_user(user["id"])
+        data["provisioning_errors"] = self.provisioning.failure_details_for_user(user["id"])
         return data
 
     def json_response(self, payload: dict[str, Any], status: int = 200, headers: dict[str, str] | None = None) -> Response:
