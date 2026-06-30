@@ -112,6 +112,100 @@ class ManagedSchemaTests(unittest.TestCase):
             self.assertIn(("user_id", "state"), index_columns)
             self.assertIn(("panel_id", "inbound_id"), index_columns)
 
+    def test_managed_tables_have_all_required_columns_defaults_and_constraints(self):
+        db = Database(self.db_path)
+        db.init_schema()
+
+        with db.session() as conn:
+            managed_columns = {
+                row["name"]: (row["type"], row["notnull"], row["dflt_value"], row["pk"])
+                for row in conn.execute("pragma table_info(managed_clients)")
+            }
+            self.assertEqual(
+                managed_columns,
+                {
+                    "id": ("INTEGER", 0, None, 1),
+                    "user_id": ("INTEGER", 1, None, 0),
+                    "panel_id": ("INTEGER", 1, None, 0),
+                    "inbound_id": ("INTEGER", 1, None, 0),
+                    "protocol": ("TEXT", 1, "'vless'", 0),
+                    "client_uuid": ("TEXT", 1, None, 0),
+                    "remote_email": ("TEXT", 1, None, 0),
+                    "flow": ("TEXT", 1, "''", 0),
+                    "rate": ("REAL", 1, "1", 0),
+                    "desired_expire_at": ("INTEGER", 1, "0", 0),
+                    "desired_enabled": ("INTEGER", 1, "1", 0),
+                    "state": ("TEXT", 1, "'pending'", 0),
+                    "remote_enabled": ("INTEGER", 1, "0", 0),
+                    "last_error": ("TEXT", 1, "''", 0),
+                    "attempt_count": ("INTEGER", 1, "0", 0),
+                    "last_attempt_at": ("INTEGER", 1, "0", 0),
+                    "last_synced_at": ("INTEGER", 1, "0", 0),
+                    "created_at": ("INTEGER", 1, None, 0),
+                    "updated_at": ("INTEGER", 1, None, 0),
+                },
+            )
+
+            ledger_columns = {
+                row["name"]: (row["type"], row["notnull"], row["dflt_value"], row["pk"])
+                for row in conn.execute("pragma table_info(usage_ledgers)")
+            }
+            self.assertEqual(
+                ledger_columns,
+                {
+                    "managed_client_id": ("INTEGER", 0, None, 1),
+                    "last_remote_up": ("INTEGER", 1, "0", 0),
+                    "last_remote_down": ("INTEGER", 1, "0", 0),
+                    "raw_up": ("INTEGER", 1, "0", 0),
+                    "raw_down": ("INTEGER", 1, "0", 0),
+                    "weighted_up": ("INTEGER", 1, "0", 0),
+                    "weighted_down": ("INTEGER", 1, "0", 0),
+                    "rate": ("REAL", 1, "1", 0),
+                    "updated_at": ("INTEGER", 1, "0", 0),
+                },
+            )
+
+            settings_columns = {
+                row["name"]: (row["type"], row["notnull"], row["dflt_value"], row["pk"])
+                for row in conn.execute("pragma table_info(app_settings)")
+            }
+            self.assertEqual(
+                settings_columns,
+                {
+                    "key": ("TEXT", 0, None, 1),
+                    "value": ("TEXT", 1, None, 0),
+                },
+            )
+
+            managed_foreign_keys = {
+                (row["from"], row["table"], row["to"], row["on_delete"])
+                for row in conn.execute("pragma foreign_key_list(managed_clients)")
+            }
+            self.assertEqual(
+                managed_foreign_keys,
+                {
+                    ("user_id", "users", "id", "NO ACTION"),
+                    ("panel_id", "panels", "id", "NO ACTION"),
+                },
+            )
+            self.assertEqual(
+                {
+                    (row["from"], row["table"], row["to"], row["on_delete"])
+                    for row in conn.execute("pragma foreign_key_list(usage_ledgers)")
+                },
+                {("managed_client_id", "managed_clients", "id", "CASCADE")},
+            )
+
+            unique_columns = {
+                tuple(
+                    column["name"]
+                    for column in conn.execute(f"pragma index_info({index['name']})")
+                )
+                for index in conn.execute("pragma index_list(managed_clients)")
+                if index["unique"]
+            }
+            self.assertIn(("user_id", "panel_id", "inbound_id"), unique_columns)
+
     def test_ensure_managed_client_is_unique_with_stable_uuid_and_label(self):
         db, user_id, panel_id = self.create_target()
 
@@ -199,14 +293,39 @@ class ManagedSchemaTests(unittest.TestCase):
         db.reset_managed_usage(user_id)
 
         self.assertEqual(db.managed_usage_totals(user_id), {"upload": 0, "download": 0})
-        for client in (first, second):
+        for client, expected_up, expected_down in ((first, 100, 40), (second, 80, 20)):
             ledger = db.get_usage_ledger(client["id"])
-            self.assertEqual(ledger["last_remote_up"], 0)
-            self.assertEqual(ledger["last_remote_down"], 0)
+            self.assertEqual(ledger["last_remote_up"], expected_up)
+            self.assertEqual(ledger["last_remote_down"], expected_down)
             self.assertEqual(ledger["raw_up"], 0)
             self.assertEqual(ledger["raw_down"], 0)
             self.assertEqual(ledger["weighted_up"], 0)
             self.assertEqual(ledger["weighted_down"], 0)
+
+    def test_post_reset_sync_bills_only_new_remote_deltas(self):
+        db, user_id, panel_id = self.create_target()
+        client = db.ensure_managed_client(user_id, panel_id, 1, "vless", "", 2.0, 0)
+        db.advance_usage_ledger(client["id"], 100, 40, 2.0)
+
+        db.reset_managed_usage(user_id)
+        ledger = db.advance_usage_ledger(client["id"], 115, 45, 2.0)
+
+        self.assertEqual(ledger["raw_up"], 15)
+        self.assertEqual(ledger["raw_down"], 5)
+        self.assertEqual(ledger["weighted_up"], 30)
+        self.assertEqual(ledger["weighted_down"], 10)
+        self.assertEqual(db.managed_usage_totals(user_id), {"upload": 30, "download": 10})
+
+    def test_deleting_managed_client_cascades_to_usage_ledger(self):
+        db, user_id, panel_id = self.create_target()
+        client = db.ensure_managed_client(user_id, panel_id, 1, "vless", "", 1.0, 0)
+        db.advance_usage_ledger(client["id"], 10, 20, 1.0)
+
+        with db.session() as conn:
+            conn.execute("delete from managed_clients where id=?", (client["id"],))
+
+        self.assertIsNone(db.get_managed_client(client["id"]))
+        self.assertIsNone(db.get_usage_ledger(client["id"]))
 
     def test_settings_and_reinitialization_preserve_migrated_data(self):
         db, user_id, panel_id = self.create_target()

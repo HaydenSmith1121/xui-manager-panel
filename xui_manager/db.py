@@ -775,8 +775,7 @@ class Database:
             conn.execute(
                 """
                 update usage_ledgers
-                set last_remote_up=0, last_remote_down=0, raw_up=0, raw_down=0,
-                    weighted_up=0, weighted_down=0, updated_at=?
+                set raw_up=0, raw_down=0, weighted_up=0, weighted_down=0, updated_at=?
                 where managed_client_id in (
                     select id from managed_clients where user_id=?
                 )
