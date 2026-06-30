@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>X-UI 聚合订阅后台</title>
+    <link rel="stylesheet" href="/app.css">
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-mark">X</span>
+          <div>
+            <strong>订阅管理</strong>
+            <span>X-UI Manager</span>
+          </div>
+        </div>
+        <nav class="nav">
+          <button class="nav-item active" data-view="account">账户</button>
+          <button class="nav-item admin-only" data-view="admin">后台</button>
+          <button class="nav-item admin-only" data-view="nodes">节点</button>
+          <button class="nav-item admin-only" data-view="settings">配置</button>
+        </nav>
+        <div class="session">
+          <span id="sessionEmail">未登录</span>
+          <button id="refreshBtn" class="ghost">刷新</button>
+        </div>
+      </aside>
+
+      <main class="main">
+        <div id="notice" class="notice hidden"></div>
+
+        <section id="authPanel" class="auth-grid">
+          <form id="loginForm" class="panel">
+            <h1>登录</h1>
+            <label>邮箱<input name="email" type="email" autocomplete="email" required></label>
+            <label>密码<input name="password" type="password" autocomplete="current-password" required></label>
+            <button type="submit">登录</button>
+          </form>
+
+          <form id="registerForm" class="panel">
+            <h1>注册</h1>
+            <label>邮箱<input name="email" type="email" autocomplete="email" required></label>
+            <label>密码<input name="password" type="password" autocomplete="new-password" minlength="6" required></label>
+            <label>套餐<select name="plan_id" id="registerPlan"></select></label>
+            <button type="submit">提交申请</button>
+          </form>
+        </section>
+
+        <section id="accountView" class="view hidden">
+          <div class="toolbar">
+            <div>
+              <h1>我的订阅</h1>
+              <p id="accountStatus"></p>
+            </div>
+            <button id="copySubBtn">复制订阅链接</button>
+          </div>
+          <div class="metric-grid">
+            <div class="metric"><span>总量</span><strong id="quotaText">-</strong></div>
+            <div class="metric"><span>已用</span><strong id="usedText">-</strong></div>
+            <div class="metric"><span>剩余</span><strong id="remainText">-</strong></div>
+            <div class="metric"><span>到期</span><strong id="expireText">-</strong></div>
+          </div>
+          <label class="wide">Clash 订阅链接<input id="subscriptionUrl" readonly></label>
+        </section>
+
+        <section id="adminView" class="view hidden">
+          <div class="toolbar">
+            <div>
+              <h1>用户审核</h1>
+              <p>审批后用户会获得套餐总量、到期时间和专属订阅链接。</p>
+            </div>
+            <button id="syncUsageBtn">同步 X-UI 用量</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>邮箱</th><th>状态</th><th>套餐</th><th>用量</th><th>到期</th><th>操作</th></tr></thead>
+              <tbody id="userRows"></tbody>
+            </table>
+          </div>
+
+          <form id="usageForm" class="panel compact-form">
+            <h2>手动录入用量</h2>
+            <label>用户<select name="user_id" id="usageUser"></select></label>
+            <label>节点<select name="node_id" id="usageNode"></select></label>
+            <label>上传 GB<input name="upload_gb" type="number" min="0" step="0.01" value="0"></label>
+            <label>下载 GB<input name="download_gb" type="number" min="0" step="0.01" value="0"></label>
+            <button type="submit">保存用量</button>
+          </form>
+        </section>
+
+        <section id="nodesView" class="view hidden">
+          <div class="split">
+            <form id="nodeForm" class="panel">
+              <h2>节点</h2>
+              <input name="id" type="hidden">
+              <label>名称<input name="name" required placeholder="美国 01"></label>
+              <label>所属面板<select name="panel_id" id="nodePanel"><option value="">不绑定</option></select></label>
+              <label>X-UI 入站 ID<input name="inbound_id" type="number" min="0" step="1" value="0"></label>
+              <label>倍率<input name="rate" type="number" min="0" step="0.1" value="1"></label>
+              <label>标签<input name="tags" placeholder="us,premium"></label>
+              <label>分享链接<textarea name="source_url" rows="6" required placeholder="vless://..."></textarea></label>
+              <label class="check"><input name="enabled" type="checkbox" checked>启用</label>
+              <button type="submit">保存节点</button>
+            </form>
+            <div class="list-panel">
+              <h2>节点列表</h2>
+              <div id="nodeList" class="row-list"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="settingsView" class="view hidden">
+          <div class="split">
+            <form id="planForm" class="panel">
+              <h2>套餐</h2>
+              <input name="id" type="hidden">
+              <label>名称<input name="name" required placeholder="1000G 月付"></label>
+              <label>总量 GB<input name="quota_gb" type="number" min="0" step="1" required></label>
+              <label>有效天数<input name="duration_days" type="number" min="1" step="1" required></label>
+              <label>允许标签<input name="allowed_tags" placeholder="us,jp,premium"></label>
+              <label class="check"><input name="require_approval" type="checkbox" checked>需要审核</label>
+              <label class="check"><input name="enabled" type="checkbox" checked>启用</label>
+              <button type="submit">保存套餐</button>
+            </form>
+
+            <form id="panelForm" class="panel">
+              <h2>X-UI 面板</h2>
+              <input name="id" type="hidden">
+              <label>名称<input name="name" required placeholder="RackNerd 美国"></label>
+              <label>面板地址<input name="base_url" required placeholder="https://domain:port/path/"></label>
+              <label>账号<input name="username" autocomplete="off"></label>
+              <label>密码<input name="password" type="password" autocomplete="new-password"></label>
+              <label>面板订阅地址<input name="subscription_url" placeholder="可选"></label>
+              <label class="check"><input name="verify_tls" type="checkbox" checked>校验证书</label>
+              <label class="check"><input name="enabled" type="checkbox" checked>启用</label>
+              <button type="submit">保存面板</button>
+            </form>
+          </div>
+          <div class="split">
+            <div class="list-panel">
+              <h2>套餐列表</h2>
+              <div id="planList" class="row-list"></div>
+            </div>
+            <div class="list-panel">
+              <h2>面板列表</h2>
+              <div id="panelList" class="row-list"></div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script src="/app.js"></script>
+  </body>
+</html>
