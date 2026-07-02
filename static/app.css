@@ -338,9 +338,18 @@ button.danger {
   to { opacity: 1; transform: translateY(0); }
 }
 
-.storefront {
+.home {
   min-height: 100vh;
   background: linear-gradient(180deg, #fbfdff 0%, #f0f7ff 58%, #f8fbff 100%);
+}
+
+.storefront {
+  min-height: 100vh;
+  background: #f8fbff;
+}
+
+.storefront .catalog-section {
+  padding-top: 96px;
 }
 
 .hero {
@@ -943,6 +952,14 @@ button.danger {
   grid-column: 1 / -1;
 }
 
+.session-profile-panel {
+  min-height: 150px;
+}
+
+.session-profile-panel #logoutBtn {
+  width: fit-content;
+}
+
 .profile-subscription-stats {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -956,6 +973,68 @@ button.danger {
 
 .subscription-display {
   margin: 0;
+}
+
+.client-import-panel {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+
+.client-import-panel.compact {
+  margin-top: 0;
+}
+
+.client-import-copy h3 {
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: -0.03em;
+}
+
+.client-import-copy p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.client-import-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 9px;
+}
+
+.client-import-button {
+  display: grid;
+  min-height: 58px;
+  justify-items: start;
+  align-content: center;
+  gap: 3px;
+  border: 1px solid rgba(188, 210, 238, 0.9);
+  padding: 0 13px;
+  color: var(--ink-soft);
+  background: #fff;
+  box-shadow: none;
+  text-align: left;
+}
+
+.client-import-button:hover:not(:disabled) {
+  border-color: rgba(33, 104, 255, 0.45);
+  color: var(--blue-dark);
+  background: #f5f9ff;
+  box-shadow: 0 10px 24px rgba(33, 104, 255, 0.08);
+}
+
+.client-import-button span {
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.client-import-button small {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .wide {
@@ -1804,6 +1883,14 @@ dialog.dialog-fallback-open {
     gap: 20px;
     border-radius: 20px;
     padding: 21px;
+  }
+
+  .client-import-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .client-import-button {
+    min-height: 54px;
   }
 
   .profile-hero {

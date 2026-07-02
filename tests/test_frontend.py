@@ -42,6 +42,28 @@ class FrontendTests(unittest.TestCase):
         self.assertIn('/api/purchases', app_js)
         self.assertIn("submitPurchase", app_js)
 
+    def test_home_and_storefront_are_separate_views(self):
+        root = Path(__file__).resolve().parents[1]
+        app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
+        index_html = (root / "static" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="homeView"', index_html)
+        self.assertIn('id="storefrontView"', index_html)
+
+        desktop_nav_start = index_html.index('<nav class="nav">')
+        desktop_nav = index_html[desktop_nav_start:index_html.index('</nav>', desktop_nav_start)]
+        self.assertIn('data-view="home"><span>首页</span>', desktop_nav)
+        self.assertIn('data-view="storefront"><span>商城</span>', desktop_nav)
+
+        mobile_nav_start = index_html.index('id="mobileNav"')
+        mobile_nav = index_html[mobile_nav_start:index_html.index('</nav>', mobile_nav_start)]
+        self.assertIn('data-view="home"><span>首页</span>', mobile_nav)
+        self.assertIn('data-view="storefront"><span>商城</span>', mobile_nav)
+
+        self.assertIn('view: "home"', app_js)
+        self.assertIn('view = "home"', app_js)
+        self.assertIn('setView("storefront")', app_js)
+
     def test_frontend_has_deliberate_desktop_mobile_and_slow_loading_states(self):
         root = Path(__file__).resolve().parents[1]
         app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
@@ -125,9 +147,16 @@ class FrontendTests(unittest.TestCase):
         index_html = (root / "static" / "index.html").read_text(encoding="utf-8")
 
         self.assertIn('id="logoutBtn"', index_html)
+        session_start = index_html.index('<div class="session">')
+        session_block = index_html[session_start:index_html.index('</aside>', session_start)]
+        profile_start = index_html.index('id="profileView"')
+        profile_block = index_html[profile_start:index_html.index('id="adminView"', profile_start)]
+        self.assertNotIn('id="logoutBtn"', session_block)
+        self.assertIn('id="logoutBtn"', profile_block)
         self.assertIn('api("/api/logout"', app_js)
         self.assertIn("state.me = null", app_js)
         self.assertIn('$("#loginForm").reset()', app_js)
+        self.assertIn('setView("home")', app_js)
         self.assertIn('showNotice("已退出登录")', app_js)
 
     def test_subscription_copy_falls_back_without_clipboard_api(self):
@@ -209,6 +238,35 @@ class FrontendTests(unittest.TestCase):
         self.assertIn('/api/purchases', app_js)
         self.assertIn("subscription_urls", app_js)
         self.assertNotIn("state.me.email ||", app_js)
+
+    def test_subscription_one_click_import_controls_exist(self):
+        root = Path(__file__).resolve().parents[1]
+        app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
+        app_css = (root / "static" / "app.css").read_text(encoding="utf-8")
+        index_html = (root / "static" / "index.html").read_text(encoding="utf-8")
+
+        for client in (
+            "clash-verge",
+            "mihomo",
+            "clash",
+            "shadowrocket",
+            "singbox",
+            "v2rayng",
+            "hiddify",
+        ):
+            self.assertIn(f'data-import-client="{client}"', index_html)
+
+        self.assertIn("function subscriptionUrlForFormat", app_js)
+        self.assertIn("function importUrlForClient", app_js)
+        self.assertIn("function renderImportButtons", app_js)
+        self.assertIn("async function launchImport", app_js)
+        self.assertIn("encodeURIComponent", app_js)
+        self.assertIn("clash://install-config?url=", app_js)
+        self.assertIn("shadowrocket://", app_js)
+        self.assertIn("data-import-client", app_js)
+        self.assertIn("window.location.href", app_js)
+        self.assertIn(".client-import-grid", app_css)
+        self.assertIn(".client-import-button", app_css)
 
     def test_personal_center_avatar_profile_and_settings_exist(self):
         root = Path(__file__).resolve().parents[1]
