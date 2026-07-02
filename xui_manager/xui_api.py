@@ -110,11 +110,18 @@ class XuiClient:
         if existing.get("id") != client_uuid:
             raise XuiApiError("x-ui client deletion conflict")
         quoted_uuid = urllib.parse.quote(client_uuid, safe="")
-        response = self._request(
-            f"panel/api/inbounds/{int(inbound_id)}/delClient/{quoted_uuid}",
-            data=b"",
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-        )
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        try:
+            response = self._request(
+                f"panel/api/inbounds/{int(inbound_id)}/delClient/{quoted_uuid}",
+                data=b"",
+                headers=headers,
+            )
+        except XuiApiError as exc:
+            if "HTTP 404" not in str(exc):
+                raise
+            quoted_email = urllib.parse.quote(email, safe="")
+            response = self._request(f"panel/api/clients/del/{quoted_email}", data=b"", headers=headers)
         self._parse_payload(response, "x-ui client deletion failed", allow_empty=True)
         if self.find_client(self.get_inbound(inbound_id), email):
             raise XuiApiError("x-ui client deletion could not be verified")

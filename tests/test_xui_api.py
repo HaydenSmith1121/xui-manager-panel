@@ -272,6 +272,31 @@ class XuiClientTests(unittest.TestCase):
         self.assertEqual(opener.requests[1][0].get_method(), "POST")
         self.assertEqual(request_path(opener.requests[2][0]), "panel/api/inbounds/get/1")
 
+    def test_delete_vless_client_falls_back_to_modern_clients_api_after_legacy_404(self):
+        opener = fake_opener(
+            [
+                api_response({"success": True, "obj": inbound_with_clients(client_record())}),
+                urllib.error.HTTPError(
+                    BASE + f"panel/api/inbounds/1/delClient/{UUID}",
+                    404,
+                    "Not Found",
+                    {},
+                    io.BytesIO(b"not found"),
+                ),
+                api_response({"success": True, "msg": "", "obj": None}),
+                api_response({"success": True, "obj": inbound_with_clients()}),
+            ]
+        )
+        client = XuiClient(BASE, "admin", "secret", opener=opener)
+
+        deleted = client.delete_vless_client(inbound_id=1, client_uuid=UUID, email=EMAIL)
+
+        modern_request = opener.requests[2][0]
+        self.assertTrue(deleted)
+        self.assertEqual(request_path(modern_request), f"panel/api/clients/del/{EMAIL}")
+        self.assertEqual(modern_request.get_method(), "POST")
+        self.assertEqual(request_path(opener.requests[3][0]), "panel/api/inbounds/get/1")
+
     def test_delete_vless_client_is_idempotent_when_remote_client_is_missing(self):
         opener = fake_opener([api_response({"success": True, "obj": inbound_with_clients()})])
         client = XuiClient(BASE, "admin", "secret", opener=opener)

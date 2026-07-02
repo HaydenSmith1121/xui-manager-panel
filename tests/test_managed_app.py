@@ -412,6 +412,9 @@ class ManagedAppTests(unittest.TestCase):
         response = app.handle_json("POST", "/api/admin/users/delete", headers, json.dumps({"user_id": user["id"]}))
 
         self.assertEqual(response.status, 502)
+        payload = json.loads(response.body)
+        self.assertIn("Korea", payload["error"])
+        self.assertIn("inbound 1", payload["error"])
         self.assertIsNotNone(app.db.get_user(user["id"]))
         self.assertNotIn("stored-secret", response.body)
         self.assertNotIn("panel-admin", response.body)

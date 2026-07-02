@@ -138,7 +138,13 @@ class XuiManagerApp:
             return self.json_response(data)
         if method == "POST" and path == "/api/admin/users/delete":
             result = self.provisioning.delete_user(int(payload["user_id"]))
-            return self.json_response(result, 200 if result["deleted"] else 502)
+            if result["deleted"]:
+                return self.json_response(result)
+            first = result["errors"][0]
+            result["error"] = (
+                f"用户与节点清理失败：{first['panel_name']} inbound {first['inbound_id']}：{first['error']}"
+            )
+            return self.json_response(result, 502)
         if method == "GET" and path == "/api/admin/plans":
             return self.json_response({"plans": self.db.list_plans()})
         if method == "POST" and path == "/api/admin/plans":
