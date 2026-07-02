@@ -127,22 +127,23 @@ class SubscriptionTests(unittest.TestCase):
 
 
 class AppTests(unittest.TestCase):
-    def test_register_endpoint_creates_pending_user(self):
+    def test_register_endpoint_creates_unsubscribed_session(self):
         with tempfile.TemporaryDirectory() as tmp:
             app = create_app(Path(tmp) / "app.db")
-            app.db.create_plan("Trial 100G", 100, 30, ["standard"], True)
 
             response = app.handle_json(
                 "POST",
                 "/api/register",
                 {},
-                json.dumps({"email": "new@example.com", "password": "secret123", "plan_id": 1}),
+                json.dumps({"email": "new@example.com", "password": "secret123"}),
             )
 
         self.assertEqual(response.status, 200)
         payload = json.loads(response.body)
-        self.assertEqual(payload["user"]["status"], "pending")
+        self.assertEqual(payload["user"]["status"], "unsubscribed")
+        self.assertIsNone(payload["user"]["plan_id"])
         self.assertTrue(payload["user"]["token"])
+        self.assertIn("Set-Cookie", response.headers)
 
     def test_logout_invalidates_current_session(self):
         with tempfile.TemporaryDirectory() as tmp:

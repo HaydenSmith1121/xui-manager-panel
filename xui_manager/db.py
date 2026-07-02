@@ -283,20 +283,25 @@ class Database:
             row = conn.execute("select * from plans where id=?", (plan_id,)).fetchone()
             return self._decode_plan(row) if row else None
 
-    def register_user(self, email: str, password: str, plan_id: int) -> dict[str, Any]:
+    def register_user(self, email: str, password: str, plan_id: int | None = None) -> dict[str, Any]:
         email = email.strip().lower()
         if "@" not in email:
             raise ValueError("invalid email")
         if len(password) < 6:
             raise ValueError("password too short")
-        plan = self.get_plan(plan_id)
-        if not plan or not plan["enabled"]:
-            raise ValueError("plan not found")
-        status = "pending" if plan["require_approval"] else "active"
         now = int(time.time())
-        expire_at = now + plan["duration_days"] * 86400 if status == "active" else 0
-        quota_bytes = plan["quota_bytes"] if status == "active" else 0
-        approved_at = now if status == "active" else 0
+        plan = self.get_plan(plan_id) if plan_id is not None else None
+        if plan_id is not None and (not plan or not plan["enabled"]):
+            raise ValueError("plan not found")
+        status = "unsubscribed"
+        expire_at = 0
+        quota_bytes = 0
+        approved_at = 0
+        if plan:
+            status = "pending" if plan["require_approval"] else "active"
+            expire_at = now + plan["duration_days"] * 86400 if status == "active" else 0
+            quota_bytes = plan["quota_bytes"] if status == "active" else 0
+            approved_at = now if status == "active" else 0
         with self.session() as conn:
             cur = conn.execute(
                 """
@@ -316,6 +321,36 @@ class Database:
                 ),
             )
             user_id = int(cur.lastrowid)
+        return self.get_user(user_id)
+
+    def apply_plan(self, user_id: int, plan_id: int) -> dict[str, Any]:
+        now = int(time.time())
+        with self.session() as conn:
+            conn.execute("begin immediate")
+            user_row = conn.execute("select * from users where id=?", (int(user_id),)).fetchone()
+            if not user_row:
+                raise ValueError("user not found")
+            user = self._decode_user(user_row)
+            if user.get("role") != "user":
+                raise ValueError("管理员账号不能申请套餐")
+            if user.get("status") != "unsubscribed" or user.get("plan_id") is not None:
+                raise ValueError("已有套餐或申请，不能重复提交")
+            plan_row = conn.execute("select * from plans where id=? and enabled=1", (int(plan_id),)).fetchone()
+            if not plan_row:
+                raise ValueError("套餐不存在或已停售")
+            plan = self._decode_plan(plan_row)
+            status = "pending" if plan["require_approval"] else "active"
+            quota_bytes = plan["quota_bytes"] if status == "active" else 0
+            expire_at = now + plan["duration_days"] * 86400 if status == "active" else 0
+            approved_at = now if status == "active" else 0
+            conn.execute(
+                """
+                update users
+                set status=?, plan_id=?, quota_bytes=?, expire_at=?, approved_at=?
+                where id=?
+                """,
+                (status, int(plan_id), quota_bytes, expire_at, approved_at, int(user_id)),
+            )
         return self.get_user(user_id)
 
     def approve_user(self, user_id: int) -> dict[str, Any]:
@@ -339,7 +374,7 @@ class Database:
         return self.get_user(user_id)
 
     def update_user_status(self, user_id: int, status: str) -> dict[str, Any]:
-        if status not in {"pending", "active", "disabled"}:
+        if status not in {"unsubscribed", "pending", "active", "disabled"}:
             raise ValueError("invalid status")
         with self.session() as conn:
             conn.execute("update users set status=? where id=?", (status, user_id))

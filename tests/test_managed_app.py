@@ -92,7 +92,64 @@ class ManagedAppTests(unittest.TestCase):
         self.assertEqual(payload["provisioning"], {"provisioned": 1, "failed": 0, "pending": 0})
         self.assertEqual(payload["user"]["status"], "active")
 
-    def test_auto_active_registration_runs_provisioning(self):
+    def test_registration_without_plan_creates_signed_in_unsubscribed_user(self):
+        response = self.app.handle_json(
+            "POST",
+            "/api/register",
+            {"Host": "manager.example.com"},
+            json.dumps({"email": "new@example.com", "password": "secret123"}),
+        )
+        payload = json.loads(response.body)
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(payload["user"]["status"], "unsubscribed")
+        self.assertIsNone(payload["user"]["plan_id"])
+        self.assertIn("Set-Cookie", response.headers)
+
+    def test_authenticated_user_can_apply_for_approval_plan(self):
+        plan_id = self.app.db.create_plan("Premium", 100, 30, ["premium"], True)
+        registration = self.app.handle_json(
+            "POST",
+            "/api/register",
+            {"Host": "manager.example.com"},
+            json.dumps({"email": "apply@example.com", "password": "secret123"}),
+        )
+        headers = {
+            "Cookie": registration.headers["Set-Cookie"].split(";", 1)[0],
+            "Host": "manager.example.com",
+            "Content-Type": "application/json",
+        }
+
+        response = self.app.handle_json("POST", "/api/applications", headers, json.dumps({"plan_id": plan_id}))
+        payload = json.loads(response.body)
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(payload["user"]["status"], "pending")
+        self.assertEqual(payload["user"]["plan_id"], plan_id)
+        self.assertNotIn("provisioning", payload)
+
+    def test_application_requires_login_and_rejects_existing_application(self):
+        plan_id = self.app.db.create_plan("Premium", 100, 30, [], True)
+        unauthenticated = self.app.handle_json(
+            "POST",
+            "/api/applications",
+            {"Content-Type": "application/json"},
+            json.dumps({"plan_id": plan_id}),
+        )
+        user = self.app.db.register_user("pending@example.com", "secret123", plan_id)
+        session = self.app.db.create_session(user["id"])
+        headers = {
+            "Cookie": f"session={session}",
+            "Host": "manager.example.com",
+            "Content-Type": "application/json",
+        }
+        duplicate = self.app.handle_json("POST", "/api/applications", headers, json.dumps({"plan_id": plan_id}))
+
+        self.assertEqual(unauthenticated.status, 401)
+        self.assertEqual(duplicate.status, 400)
+        self.assertEqual(self.app.db.get_user(user["id"])["plan_id"], plan_id)
+
+    def test_auto_active_application_runs_provisioning(self):
         plan_id = self.app.db.create_plan("Instant", 100, 30, ["premium"], False)
         panel_id = self.app.db.create_panel("Panel", "https://panel.example.com", "admin", "secret")
         self.app.db.create_node(
@@ -106,12 +163,18 @@ class ManagedAppTests(unittest.TestCase):
             "managed",
         )
 
-        response = self.app.handle_json(
+        registration = self.app.handle_json(
             "POST",
             "/api/register",
             {"Host": "manager.example.com"},
-            json.dumps({"email": "instant@example.com", "password": "secret123", "plan_id": plan_id}),
+            json.dumps({"email": "instant@example.com", "password": "secret123"}),
         )
+        headers = {
+            "Cookie": registration.headers["Set-Cookie"].split(";", 1)[0],
+            "Host": "manager.example.com",
+            "Content-Type": "application/json",
+        }
+        response = self.app.handle_json("POST", "/api/applications", headers, json.dumps({"plan_id": plan_id}))
         payload = json.loads(response.body)
 
         self.assertEqual(response.status, 200)

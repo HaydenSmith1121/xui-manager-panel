@@ -44,14 +44,12 @@ class XuiManagerApp:
             if method == "GET" and path == "/api/plans":
                 return self.json_response({"plans": self.db.list_plans(enabled_only=True)})
             if method == "POST" and path == "/api/register":
-                user = self.db.register_user(payload["email"], payload["password"], int(payload["plan_id"]))
-                provisioning = None
-                if user["status"] == "active":
-                    provisioning = self.provisioning.provision_user(user["id"])
-                data = {"user": self.user_summary(user, headers)}
-                if provisioning is not None:
-                    data["provisioning"] = provisioning
-                return self.json_response(data)
+                user = self.db.register_user(payload["email"], payload["password"])
+                session = self.db.create_session(user["id"])
+                return self.json_response(
+                    {"user": self.user_summary(user, headers)},
+                    headers={"Set-Cookie": cookie_header(session)},
+                )
             if method == "POST" and path == "/api/login":
                 user = self.db.authenticate(payload["email"], payload["password"])
                 if not user:
@@ -64,12 +62,25 @@ class XuiManagerApp:
             if method == "GET" and path == "/api/me":
                 user = self.user_from_headers(headers)
                 return self.json_response({"user": self.user_summary(user, headers) if user else None})
+            if method == "POST" and path == "/api/applications":
+                user = self.user_from_headers(headers)
+                if not user:
+                    return self.json_response({"error": "请先登录后再申请套餐"}, 401)
+                guard = self.require_mutation_headers(headers)
+                if guard:
+                    return guard
+                applied = self.db.apply_plan(user["id"], int(payload["plan_id"]))
+                data: dict[str, Any] = {"user": self.user_summary(applied, headers)}
+                if applied["status"] == "active":
+                    data["provisioning"] = self.provisioning.provision_user(applied["id"])
+                    data["errors"] = self.provisioning.failure_details_for_user(applied["id"])
+                return self.json_response(data)
             if path.startswith("/api/admin/"):
                 user = self.require_admin(headers)
                 if isinstance(user, Response):
                     return user
                 if method == "POST":
-                    guard = self.require_admin_mutation_headers(headers)
+                    guard = self.require_mutation_headers(headers)
                     if guard:
                         return guard
                 return self.handle_admin(method, path, headers, payload)
@@ -249,7 +260,7 @@ class XuiManagerApp:
             return self.json_response({"error": "Admin required"}, 403)
         return user
 
-    def require_admin_mutation_headers(self, headers: dict[str, str]) -> Response | None:
+    def require_mutation_headers(self, headers: dict[str, str]) -> Response | None:
         content_type = headers.get("Content-Type", "")
         if content_type and "application/json" not in content_type.lower():
             return self.json_response({"error": "JSON required"}, 415)
@@ -261,7 +272,7 @@ class XuiManagerApp:
         source_host = urllib.parse.urlparse(source).netloc
         target_host = headers.get("X-Forwarded-Host") or headers.get("Host") or ""
         if source_host and target_host and source_host.lower() != target_host.lower():
-            return self.json_response({"error": "Cross-origin admin request rejected"}, 403)
+            return self.json_response({"error": "Cross-origin request rejected"}, 403)
         return None
 
     def user_summary(self, user: dict[str, Any], headers: dict[str, str] | None = None) -> dict[str, Any]:
