@@ -3,6 +3,29 @@ import unittest
 
 
 class FrontendTests(unittest.TestCase):
+    def test_page_declares_favicon_asset(self):
+        root = Path(__file__).resolve().parents[1]
+        index_html = (root / "static" / "index.html").read_text(encoding="utf-8")
+        favicon = root / "static" / "favicon.svg"
+
+        self.assertIn('<link rel="icon" type="image/svg+xml" href="/favicon.svg">', index_html)
+        self.assertTrue(favicon.exists())
+        self.assertIn("<svg", favicon.read_text(encoding="utf-8"))
+
+    def test_mobile_login_dialog_has_non_dialog_browser_fallback(self):
+        root = Path(__file__).resolve().parents[1]
+        app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
+        app_css = (root / "static" / "app.css").read_text(encoding="utf-8")
+        index_html = (root / "static" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="mobileAccountBtn" type="button" class="avatar-button"', index_html)
+        self.assertNotIn('id="mobileAccountBtn" type="button" class="avatar-button" data-open-auth', index_html)
+        self.assertIn("function openModalDialog", app_js)
+        self.assertIn('typeof dialog.showModal === "function"', app_js)
+        self.assertIn('dialog.setAttribute("open", "")', app_js)
+        self.assertIn('dialog.classList.add("dialog-fallback-open")', app_js)
+        self.assertIn(".dialog-fallback-open", app_css)
+
     def test_public_storefront_and_authentication_are_separate(self):
         root = Path(__file__).resolve().parents[1]
         app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
@@ -178,6 +201,7 @@ class FrontendTests(unittest.TestCase):
 
         self.assertIn('id="balanceText"', index_html)
         self.assertIn('id="rechargeForm"', index_html)
+        self.assertIn('Clash Verge / Mihomo（支持 VLESS；旧版 Clash 可能不兼容）', index_html)
         self.assertIn('data-sub-format="clash"', index_html)
         self.assertIn('data-sub-format="base64"', index_html)
         self.assertIn('data-sub-format="singbox"', index_html)

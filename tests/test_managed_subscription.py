@@ -31,10 +31,11 @@ class ManagedSubscriptionTests(unittest.TestCase):
         self.db.update_managed_client_result(client["id"], state="provisioned", remote_enabled=True, error="")
         return self.db.get_managed_client(client["id"])
 
-    def response_json(self, user):
+    def response_yaml(self, user):
         response = build_clash_subscription(self.db, user["token"])
         self.assertEqual(response.status, 200)
-        return response, json.loads(response.body)
+        self.assertEqual(response.headers["Content-Type"], "text/yaml; charset=utf-8")
+        return response, response.body
 
     def test_users_receive_distinct_uuids_without_changing_transport(self):
         first = self.active_user("one@example.com")
@@ -42,16 +43,16 @@ class ManagedSubscriptionTests(unittest.TestCase):
         first_client = self.provisioned_client(first)
         second_client = self.provisioned_client(second)
 
-        first_response, first_body = self.response_json(first)
-        second_response, second_body = self.response_json(second)
+        first_response, first_body = self.response_yaml(first)
+        second_response, second_body = self.response_yaml(second)
 
         self.assertIn(first_client["client_uuid"], first_response.body)
         self.assertNotIn(second_client["client_uuid"], first_response.body)
         self.assertIn(second_client["client_uuid"], second_response.body)
-        self.assertNotEqual(first_body["proxies"][0]["uuid"], second_body["proxies"][0]["uuid"])
-        self.assertEqual(first_body["proxies"][0]["servername"], "edge.example")
-        self.assertEqual(first_body["proxies"][0]["network"], "ws")
-        self.assertEqual(first_body["proxies"][0]["ws-opts"]["path"], "/edge")
+        self.assertNotEqual(first_client["client_uuid"], second_client["client_uuid"])
+        self.assertIn('servername: "edge.example"', first_body)
+        self.assertIn('network: "ws"', first_body)
+        self.assertIn('path: "/edge"', first_body)
 
     def test_pending_or_failed_managed_targets_are_omitted_but_static_nodes_remain(self):
         user = self.active_user("user@example.com")
@@ -59,17 +60,18 @@ class ManagedSubscriptionTests(unittest.TestCase):
         pending = self.db.ensure_managed_client(user["id"], self.panel_id, 7, "vless", "", 1, user["expire_at"])
         self.db.update_managed_client_result(pending["id"], state="failed", remote_enabled=False, error="failed")
 
-        _, body = self.response_json(user)
+        _, body = self.response_yaml(user)
 
-        self.assertEqual([proxy["name"] for proxy in body["proxies"]], ["Static"])
-        self.assertNotIn("template", json.dumps(body))
+        self.assertIn('proxies:\n  - name: "Static"', body)
+        self.assertNotIn('name: "Managed"', body)
+        self.assertNotIn("template", body)
 
     def test_header_uses_separate_weighted_upload_and_download_totals(self):
         user = self.active_user("user@example.com")
         client = self.provisioned_client(user)
         self.db.advance_usage_ledger(client["id"], 10, 20, 3)
 
-        response, _ = self.response_json(user)
+        response, _ = self.response_yaml(user)
 
         self.assertIn("upload=30; download=60;", response.headers["Subscription-Userinfo"])
 
@@ -78,11 +80,23 @@ class ManagedSubscriptionTests(unittest.TestCase):
         user = self.active_user("user@example.com")
         self.provisioned_client(user)
 
-        response, body = self.response_json(user)
+        response, body = self.response_yaml(user)
 
         profile_title = base64.b64decode(response.headers["Profile-Title"]).decode("utf-8")
         self.assertEqual(profile_title, "良心云")
-        self.assertEqual(body["name"], "良心云")
+        self.assertTrue(body.startswith('name: "良心云"'))
+
+    def test_clash_subscription_is_yaml_for_broader_clash_client_compatibility(self):
+        user = self.active_user("clash@example.com")
+        self.provisioned_client(user)
+
+        response = build_clash_subscription(self.db, user["token"])
+
+        self.assertEqual(response.headers["Content-Type"], "text/yaml; charset=utf-8")
+        self.assertTrue(response.body.startswith('name: "clash@example.com"'))
+        self.assertIn('proxies:\n  - name: "Managed"', response.body)
+        self.assertIn('proxy-groups:\n  - name: "Proxy"', response.body)
+        self.assertNotIn("{", response.body.splitlines()[0])
 
     def test_exhausted_valid_token_returns_empty_200_with_metadata(self):
         tiny_plan = self.db.create_plan("Tiny", 0.000001, 30, ["premium"], True)
@@ -91,9 +105,9 @@ class ManagedSubscriptionTests(unittest.TestCase):
         client = self.provisioned_client(user)
         self.db.advance_usage_ledger(client["id"], 10 * 1024 * 1024, 0, 1)
 
-        response, body = self.response_json(user)
+        response, body = self.response_yaml(user)
 
-        self.assertEqual(body["proxies"], [])
+        self.assertIn("proxies: []", body)
         self.assertIn("total=", response.headers["Subscription-Userinfo"])
 
     def test_base64_subscription_contains_client_share_links_for_mobile_apps(self):

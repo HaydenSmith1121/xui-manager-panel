@@ -581,6 +581,36 @@ function showAuthTab(tab) {
   window.setTimeout(() => $(`[data-auth-panel="${tab}"] input`)?.focus(), 0);
 }
 
+function openModalDialog(dialog) {
+  if (!dialog) return;
+  if (dialog.open) return;
+  dialog.classList.remove("dialog-fallback-open");
+  if (typeof dialog.showModal === "function") {
+    try {
+      if (!dialog.open) dialog.showModal();
+      return;
+    } catch (_) {
+      // Some mobile WebViews expose showModal but reject it; fall back to an open dialog.
+    }
+  }
+  dialog.setAttribute("open", "");
+  dialog.classList.add("dialog-fallback-open");
+}
+
+function closeModalDialog(dialog) {
+  if (!dialog) return;
+  dialog.classList.remove("dialog-fallback-open");
+  if (typeof dialog.close === "function") {
+    try {
+      if (dialog.open) dialog.close();
+      return;
+    } catch (_) {
+      // Fall through to attribute cleanup for non-native dialog implementations.
+    }
+  }
+  dialog.removeAttribute("open");
+}
+
 function openAuth(tab = "login") {
   if (state.me) {
     setView(state.me.role === "admin" ? "admin" : "account");
@@ -590,12 +620,12 @@ function openAuth(tab = "login") {
   showAuthTab(tab);
   $("#authContext").textContent = state.pendingPlanId ? "登录或注册后，将继续购买所选套餐。" : "登录后继续管理你的订阅。";
   const dialog = $("#authDialog");
-  if (!dialog.open) dialog.showModal();
+  openModalDialog(dialog);
 }
 
 function closeAuth(discardPending = false) {
   const dialog = $("#authDialog");
-  if (dialog.open) dialog.close();
+  closeModalDialog(dialog);
   if (discardPending) state.pendingPlanId = null;
   state.authReturnFocus?.focus?.();
   state.authReturnFocus = null;

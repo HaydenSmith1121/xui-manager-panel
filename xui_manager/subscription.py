@@ -183,7 +183,7 @@ def subscription_response(
     title_b64 = base64.b64encode(title.encode("utf-8")).decode("ascii")
     return Response(
         200,
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        dump_yaml(payload) + "\n",
         {
             "Content-Type": "text/yaml; charset=utf-8",
             "Subscription-Userinfo": f"upload={upload}; download={download}; total={quota}; expire={expire_at}",
@@ -192,6 +192,78 @@ def subscription_response(
             "Cache-Control": "no-store",
         },
     )
+
+
+def dump_yaml(value: Any, indent: int = 0) -> str:
+    return "\n".join(yaml_lines(value, indent))
+
+
+def yaml_lines(value: Any, indent: int = 0) -> list[str]:
+    pad = " " * indent
+    if isinstance(value, dict):
+        lines: list[str] = []
+        for key, item in value.items():
+            if isinstance(item, dict):
+                if item:
+                    lines.append(f"{pad}{key}:")
+                    lines.extend(yaml_lines(item, indent + 2))
+                else:
+                    lines.append(f"{pad}{key}: {{}}")
+            elif isinstance(item, list):
+                if item:
+                    lines.append(f"{pad}{key}:")
+                    lines.extend(yaml_lines(item, indent + 2))
+                else:
+                    lines.append(f"{pad}{key}: []")
+            else:
+                lines.append(f"{pad}{key}: {yaml_scalar(item)}")
+        return lines
+    if isinstance(value, list):
+        lines = []
+        for item in value:
+            prefix = f"{pad}-"
+            if isinstance(item, dict):
+                if not item:
+                    lines.append(f"{prefix} {{}}")
+                    continue
+                first = True
+                for key, child in item.items():
+                    item_pad = " " * (indent + 2)
+                    line_prefix = f"{prefix} {key}:" if first else f"{item_pad}{key}:"
+                    if isinstance(child, dict):
+                        if child:
+                            lines.append(line_prefix)
+                            lines.extend(yaml_lines(child, indent + 4))
+                        else:
+                            lines.append(f"{line_prefix} {{}}")
+                    elif isinstance(child, list):
+                        if child:
+                            lines.append(line_prefix)
+                            lines.extend(yaml_lines(child, indent + 4))
+                        else:
+                            lines.append(f"{line_prefix} []")
+                    else:
+                        lines.append(f"{line_prefix} {yaml_scalar(child)}")
+                    first = False
+            elif isinstance(item, list):
+                lines.append(prefix)
+                lines.extend(yaml_lines(item, indent + 2))
+            else:
+                lines.append(f"{prefix} {yaml_scalar(item)}")
+        return lines
+    return [f"{pad}{yaml_scalar(value)}"]
+
+
+def yaml_scalar(value: Any) -> str:
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if value is None:
+        return "null"
+    return str(value)
 
 
 def node_to_proxy(node: dict[str, Any], client_uuid: str | None = None) -> dict[str, Any] | None:
