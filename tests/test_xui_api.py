@@ -255,6 +255,42 @@ class XuiClientTests(unittest.TestCase):
         self.assertEqual(payload["enable"], False)
         self.assertEqual(updated["enable"], False)
 
+    def test_delete_vless_client_posts_documented_route_and_verifies_absence(self):
+        opener = fake_opener(
+            [
+                api_response({"success": True, "obj": inbound_with_clients(client_record())}),
+                api_response({"success": True, "msg": "", "obj": None}),
+                api_response({"success": True, "obj": inbound_with_clients()}),
+            ]
+        )
+        client = XuiClient(BASE, "admin", "secret", opener=opener)
+
+        deleted = client.delete_vless_client(inbound_id=1, client_uuid=UUID, email=EMAIL)
+
+        self.assertTrue(deleted)
+        self.assertEqual(request_path(opener.requests[1][0]), f"panel/api/inbounds/1/delClient/{UUID}")
+        self.assertEqual(opener.requests[1][0].get_method(), "POST")
+        self.assertEqual(request_path(opener.requests[2][0]), "panel/api/inbounds/get/1")
+
+    def test_delete_vless_client_is_idempotent_when_remote_client_is_missing(self):
+        opener = fake_opener([api_response({"success": True, "obj": inbound_with_clients()})])
+        client = XuiClient(BASE, "admin", "secret", opener=opener)
+
+        deleted = client.delete_vless_client(inbound_id=1, client_uuid=UUID, email=EMAIL)
+
+        self.assertTrue(deleted)
+        self.assertEqual(len(opener.requests), 1)
+
+    def test_delete_vless_client_rejects_uuid_conflict_without_mutation(self):
+        other = client_record(client_uuid="99999999-8888-4777-9666-555555555555")
+        opener = fake_opener([api_response({"success": True, "obj": inbound_with_clients(other)})])
+        client = XuiClient(BASE, "admin", "secret", opener=opener)
+
+        with self.assertRaisesRegex(XuiApiError, "conflict"):
+            client.delete_vless_client(inbound_id=1, client_uuid=UUID, email=EMAIL)
+
+        self.assertEqual(len(opener.requests), 1)
+
     def test_empty_mutation_response_is_verified_by_readback(self):
         stored = client_record()
         opener = fake_opener(

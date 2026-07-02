@@ -102,6 +102,24 @@ class XuiClient:
             modern_action="update",
         )
 
+    def delete_vless_client(self, *, inbound_id: int, client_uuid: str, email: str) -> bool:
+        inbound = self.get_inbound(inbound_id)
+        existing = self.find_client(inbound, email)
+        if not existing:
+            return True
+        if existing.get("id") != client_uuid:
+            raise XuiApiError("x-ui client deletion conflict")
+        quoted_uuid = urllib.parse.quote(client_uuid, safe="")
+        response = self._request(
+            f"panel/api/inbounds/{int(inbound_id)}/delClient/{quoted_uuid}",
+            data=b"",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        self._parse_payload(response, "x-ui client deletion failed", allow_empty=True)
+        if self.find_client(self.get_inbound(inbound_id), email):
+            raise XuiApiError("x-ui client deletion could not be verified")
+        return True
+
     def client_traffic(self, email: str) -> dict[str, int]:
         target = email.strip().lower()
         traffic = {"up": 0, "down": 0}
