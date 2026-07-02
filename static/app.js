@@ -9,7 +9,7 @@ const state = {
   expandedUsers: new Set(),
   settings: {},
   inbounds: [],
-  view: "storefront",
+  view: "home",
   pendingPlanId: null,
   loadingCount: 0,
   loadingStartedAt: 0,
@@ -214,6 +214,113 @@ async function copyTextFromInput(input) {
   if (!copied) throw new Error("复制失败，请手动选择订阅链接复制");
 }
 
+function subscriptionUrlForFormat(format) {
+  const urls = state.me?.subscription_urls || {};
+  if (format === "clash") return urls.clash || state.me?.subscription_url || "";
+  if (format === "base64") return urls.base64 || "";
+  if (format === "singbox") return urls.singbox || "";
+  return state.me?.subscription_url || urls.clash || "";
+}
+
+const importClients = {
+  "clash-verge": {
+    format: "clash",
+    label: "Clash Verge",
+    build: (url) => "clash://install-config?url=" + encodeURIComponent(url),
+  },
+  mihomo: {
+    format: "clash",
+    label: "Mihomo",
+    build: (url) => "clash://install-config?url=" + encodeURIComponent(url),
+  },
+  clash: {
+    format: "clash",
+    label: "Clash",
+    build: (url) => "clash://install-config?url=" + encodeURIComponent(url),
+  },
+  shadowrocket: {
+    format: "base64",
+    label: "Shadowrocket",
+    build: (url) => "shadowrocket://add/sub://" + encodeURIComponent(url),
+  },
+  singbox: {
+    format: "singbox",
+    label: "sing-box",
+    build: (url) => "sing-box://import-remote-profile?url=" + encodeURIComponent(url),
+    copyFallback: true,
+  },
+  v2rayng: {
+    format: "base64",
+    label: "v2rayNG",
+    build: (url) => "v2rayng://install-config?url=" + encodeURIComponent(url),
+    copyFallback: true,
+  },
+  hiddify: {
+    format: "base64",
+    label: "Hiddify",
+    build: (url) => "hiddify://import/" + encodeURIComponent(url),
+    copyFallback: true,
+  },
+};
+
+function subscriptionUrlForClient(client) {
+  const config = importClients[client];
+  if (!config) return "";
+  return (
+    subscriptionUrlForFormat(config.format) ||
+    subscriptionUrlForFormat("clash") ||
+    subscriptionUrlForFormat("base64") ||
+    subscriptionUrlForFormat("singbox")
+  );
+}
+
+function importUrlForClient(client) {
+  const config = importClients[client];
+  const url = subscriptionUrlForClient(client);
+  return config && url ? config.build(url) : "";
+}
+
+function renderImportButtons() {
+  const active = Boolean(state.me && state.me.status === "active");
+  $$('[data-import-client]').forEach((button) => {
+    button.disabled = !active || !subscriptionUrlForClient(button.dataset.importClient);
+  });
+}
+
+async function copySubscriptionUrl(url) {
+  if (!url) throw new Error("当前还没有可复制的订阅链接");
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(url);
+    return;
+  }
+  const helper = $("#subscriptionUrl") || $("#profileSubscriptionUrl");
+  if (!helper) throw new Error("复制失败，请手动复制订阅链接");
+  const previous = helper.value;
+  helper.value = url;
+  try {
+    await copyTextFromInput(helper);
+  } finally {
+    helper.value = previous;
+  }
+}
+
+async function launchImport(client) {
+  if (!state.me) {
+    openAuth("login");
+    return;
+  }
+  if (state.me.status !== "active") throw new Error("订阅开通后才能一键导入客户端");
+
+  const config = importClients[client];
+  const rawUrl = subscriptionUrlForClient(client);
+  const targetUrl = importUrlForClient(client);
+  if (!config || !rawUrl || !targetUrl) throw new Error("当前还没有可导入的订阅链接");
+
+  if (config.copyFallback) await copySubscriptionUrl(rawUrl);
+  window.location.href = targetUrl;
+  showNotice(config.copyFallback ? "已复制订阅链接，并尝试打开 " + config.label : "正在打开 " + config.label);
+}
+
 window.addEventListener("unhandledrejection", (event) => {
   const reason = event.reason;
   const message = reason?.message || String(reason || "请求失败");
@@ -283,7 +390,7 @@ function setView(view) {
     return;
   }
   if (["admin", "nodes", "settings"].includes(view) && state.me?.role !== "admin") {
-    view = "storefront";
+    view = "home";
   }
   state.view = view;
   $$('[data-view]').forEach((btn) => btn.classList.toggle("active", btn.dataset.view === view));
@@ -353,6 +460,7 @@ function renderAuth() {
   setAvatarNode($("#profileHeroAvatar"), "large");
   if (!loggedIn) {
     renderProfile();
+    renderImportButtons();
     renderPlanCatalog();
     return;
   }
@@ -369,13 +477,14 @@ function renderAuth() {
   $("#remainText").textContent = formatBytes(state.me.remaining_bytes);
   $("#expireText").textContent = toDate(state.me.expire_at);
   $("#balanceText").textContent = formatMoney(state.me.balance_cents);
-  const subscriptionUrls = state.me.subscription_urls || {};
-  $("#subscriptionUrl").value = subscriptionUrls.clash || state.me.subscription_url || "";
-  $("#base64SubscriptionUrl").value = subscriptionUrls.base64 || "";
-  $("#singboxSubscriptionUrl").value = subscriptionUrls.singbox || "";
-  $("#copySubBtn").disabled = state.me.status !== "active" || !state.me.subscription_url;
+  const clashSubscriptionUrl = subscriptionUrlForFormat("clash");
+  $("#subscriptionUrl").value = clashSubscriptionUrl;
+  $("#base64SubscriptionUrl").value = subscriptionUrlForFormat("base64");
+  $("#singboxSubscriptionUrl").value = subscriptionUrlForFormat("singbox");
+  $("#copySubBtn").disabled = state.me.status !== "active" || !clashSubscriptionUrl;
   renderTransactions();
   renderProfile();
+  renderImportButtons();
   renderPlanCatalog();
 }
 
@@ -390,8 +499,7 @@ function renderProfile() {
   $("#expireReminderToggle").checked = Boolean(state.profilePrefs.expireReminder);
   $("#trafficReminderToggle").checked = Boolean(state.profilePrefs.trafficReminder);
   $("#autoRenewToggle").checked = Boolean(state.profilePrefs.autoRenew);
-  const subscriptionUrls = state.me?.subscription_urls || {};
-  const subscriptionUrl = subscriptionUrls.clash || state.me?.subscription_url || "";
+  const subscriptionUrl = subscriptionUrlForFormat("clash");
   const plan = state.plans.find((item) => Number(item.id) === Number(state.me?.plan_id));
   $("#profileSubscriptionInfo").textContent = loggedIn
     ? `${plan?.name || "当前未选择套餐"} · ${formatBytes(state.me.quota_bytes)} 总量`
@@ -403,6 +511,7 @@ function renderProfile() {
   $$("[data-copy-profile-sub]").forEach((button) => {
     button.disabled = !subscriptionUrl || state.me?.status !== "active";
   });
+  renderImportButtons();
   setAvatarNode($("#profileEntryAvatar"));
   setAvatarNode($("#mobileAvatar"), "small");
   setAvatarNode($("#profileHeroAvatar"), "large");
@@ -794,12 +903,19 @@ async function handleDocumentClick(event) {
     return;
   }
   if (target.closest("[data-scroll-plans]")) {
-    $("#plansSection").scrollIntoView({ behavior: "smooth" });
+    setView("storefront");
+    window.setTimeout(() => $("#plansSection")?.scrollIntoView({ behavior: "smooth" }), 0);
     return;
   }
   const applyButton = target.closest("[data-apply-plan]");
   if (applyButton) {
     await requestPurchase(applyButton.dataset.applyPlan);
+    return;
+  }
+
+  const importButton = target.closest("[data-import-client]");
+  if (importButton) {
+    await launchImport(importButton.dataset.importClient);
     return;
   }
 
@@ -955,11 +1071,12 @@ function bindEvents() {
     state.users = [];
     state.panels = [];
     state.nodes = [];
+    state.transactions = [];
     state.pendingPlanId = null;
     state.profileAvatar = "";
     $("#loginForm").reset();
     $("#registerForm").reset();
-    setView("storefront");
+    setView("home");
     renderAuth();
     showNotice("已退出登录");
   });

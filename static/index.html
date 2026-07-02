@@ -11,7 +11,7 @@
   <body>
     <div class="app-shell">
       <aside class="sidebar" aria-label="主导航">
-        <button class="brand brand-button" type="button" data-view="storefront" aria-label="返回商品首页">
+        <button class="brand brand-button" type="button" data-view="home" aria-label="返回首页">
           <span class="brand-mark" aria-hidden="true">
             <svg viewBox="0 0 64 64"><path d="M18 43c-7 0-12-4-12-10s5-10 12-10c4-8 15-9 20-2 9-1 16 5 16 12 0 6-5 10-12 10H18Z"/><path class="brand-pulse" d="M15 33h12l5-8 6 15 6-7h13"/></svg>
           </span>
@@ -19,7 +19,8 @@
         </button>
 
         <nav class="nav">
-          <button class="nav-item active" type="button" data-view="storefront"><span>商城</span><small>实时套餐</small></button>
+          <button class="nav-item active" type="button" data-view="home"><span>首页</span><small>服务入口</small></button>
+          <button class="nav-item" type="button" data-view="storefront"><span>商城</span><small>实时套餐</small></button>
           <button class="nav-item user-only hidden" type="button" data-view="account"><span>我的订阅</span><small>用量与链接</small></button>
           <button class="nav-item admin-only hidden" type="button" data-view="admin"><span>用户</span><small>审核与状态</small></button>
           <button class="nav-item admin-only hidden" type="button" data-view="nodes"><span>节点</span><small>X-UI 接入</small></button>
@@ -33,7 +34,6 @@
             <button id="loginBtn" type="button" data-open-auth="login">登录</button>
             <button id="registerBtn" type="button" class="ghost" data-open-auth="register">注册</button>
             <button id="refreshBtn" type="button" class="ghost hidden">刷新</button>
-            <button id="logoutBtn" type="button" class="ghost hidden">退出登录</button>
           </div>
         </div>
       </aside>
@@ -45,7 +45,7 @@
         </button>
 
         <header class="mobile-header">
-          <button class="brand brand-button" type="button" data-view="storefront">
+          <button class="brand brand-button" type="button" data-view="home">
             <span class="brand-mark" aria-hidden="true">
               <svg viewBox="0 0 64 64"><path d="M18 43c-7 0-12-4-12-10s5-10 12-10c4-8 15-9 20-2 9-1 16 5 16 12 0 6-5 10-12 10H18Z"/><path class="brand-pulse" d="M15 33h12l5-8 6 15 6-7h13"/></svg>
             </span>
@@ -59,14 +59,14 @@
 
         <div id="notice" class="notice hidden" role="status" aria-live="polite"></div>
 
-        <section id="storefrontView" class="view storefront">
+        <section id="homeView" class="view home">
           <div class="hero">
             <div class="hero-copy">
               <p class="eyebrow">KOREA NODE ACCESS</p>
               <h1>余额购买，<br><span>连接即刻生效。</span></h1>
               <p class="hero-lede">实时套餐公开透明。登录后使用余额付款，无需等待人工审核。</p>
               <div class="hero-actions">
-                <button type="button" data-scroll-plans>查看套餐</button>
+                <button type="button" data-scroll-plans>进入商城</button>
                 <button type="button" class="ghost" data-open-auth="login">登录账号</button>
               </div>
               <dl class="hero-facts">
@@ -89,6 +89,9 @@
             </div>
           </div>
 
+        </section>
+
+        <section id="storefrontView" class="view storefront hidden">
           <div class="catalog-section" id="plansSection">
             <div class="section-heading">
               <div><p class="eyebrow">AVAILABLE PLANS</p><h2>选择适合你的套餐</h2></div>
@@ -134,6 +137,18 @@
               <label><span>通用 Base64（v2rayNG、Shadowrocket、Hiddify）</span><span class="copy-field"><input id="base64SubscriptionUrl" data-sub-format="base64" readonly><button type="button" data-copy-sub="base64">复制</button></span></label>
               <label><span>sing-box（macOS、Android、iOS）</span><span class="copy-field"><input id="singboxSubscriptionUrl" data-sub-format="singbox" readonly><button type="button" data-copy-sub="singbox">复制</button></span></label>
             </div>
+            <div class="client-import-panel">
+              <div class="client-import-copy"><h3>一键导入</h3><p>选择客户端尝试直接打开；如果系统没有响应，请复制上方订阅链接手动导入。</p></div>
+              <div class="client-import-grid">
+                <button type="button" class="client-import-button" data-import-client="clash-verge"><span>Clash Verge</span><small>推荐</small></button>
+                <button type="button" class="client-import-button" data-import-client="mihomo"><span>Mihomo</span><small>Clash Meta</small></button>
+                <button type="button" class="client-import-button" data-import-client="clash"><span>Clash</span><small>通用</small></button>
+                <button type="button" class="client-import-button" data-import-client="shadowrocket"><span>Shadowrocket</span><small>iOS</small></button>
+                <button type="button" class="client-import-button" data-import-client="singbox"><span>sing-box</span><small>多平台</small></button>
+                <button type="button" class="client-import-button" data-import-client="v2rayng"><span>v2rayNG</span><small>Android</small></button>
+                <button type="button" class="client-import-button" data-import-client="hiddify"><span>Hiddify</span><small>通用</small></button>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -171,6 +186,11 @@
               <label class="profile-switch"><input id="autoRenewToggle" type="checkbox" data-profile-setting="autoRenew">自动续费</label>
             </section>
 
+            <section class="panel profile-panel session-profile-panel">
+              <div class="form-intro"><h2>账号会话</h2><p>退出当前设备上的登录状态。</p></div>
+              <button id="logoutBtn" type="button" class="ghost danger hidden">退出登录</button>
+            </section>
+
             <form id="profileGiftCardForm" class="panel profile-panel gift-card-panel">
               <div class="form-intro"><h2>礼品卡兑换</h2><p>输入礼品卡卡密，兑换后余额会立即入账。</p></div>
               <div class="gift-card-balance"><span>当前余额</span><strong id="profileGiftCardBalance">¥0.00</strong></div>
@@ -196,6 +216,18 @@
               <label class="subscription-display">订阅链接展示
                 <span class="copy-field"><input id="profileSubscriptionUrl" readonly><button type="button" data-copy-profile-sub>复制订阅链接</button></span>
               </label>
+              <div class="client-import-panel compact">
+                <div class="client-import-copy"><h3>一键导入</h3><p>从个人中心直接把当前订阅交给常用客户端。</p></div>
+                <div class="client-import-grid">
+                  <button type="button" class="client-import-button" data-import-client="clash-verge"><span>Clash Verge</span><small>推荐</small></button>
+                  <button type="button" class="client-import-button" data-import-client="mihomo"><span>Mihomo</span><small>Clash Meta</small></button>
+                  <button type="button" class="client-import-button" data-import-client="clash"><span>Clash</span><small>通用</small></button>
+                  <button type="button" class="client-import-button" data-import-client="shadowrocket"><span>Shadowrocket</span><small>iOS</small></button>
+                  <button type="button" class="client-import-button" data-import-client="singbox"><span>sing-box</span><small>多平台</small></button>
+                  <button type="button" class="client-import-button" data-import-client="v2rayng"><span>v2rayNG</span><small>Android</small></button>
+                  <button type="button" class="client-import-button" data-import-client="hiddify"><span>Hiddify</span><small>通用</small></button>
+                </div>
+              </div>
             </section>
           </div>
         </section>
@@ -281,7 +313,8 @@
     </div>
 
     <nav id="mobileNav" class="mobile-nav" aria-label="移动端导航">
-      <button type="button" class="active" data-view="storefront"><span>商城</span></button>
+      <button type="button" class="active" data-view="home"><span>首页</span></button>
+      <button type="button" data-view="storefront"><span>商城</span></button>
       <button type="button" class="user-only hidden" data-view="account"><span>订阅</span></button>
       <button type="button" class="admin-only hidden" data-view="admin"><span>用户</span></button>
       <button type="button" class="admin-only hidden" data-view="nodes"><span>节点</span></button>
