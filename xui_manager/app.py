@@ -5,6 +5,7 @@ import mimetypes
 import os
 import time
 import urllib.parse
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from http import cookies
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -13,7 +14,7 @@ from typing import Any, Callable
 from .billing import bytes_from_gb, usage_totals
 from .db import Database
 from .provisioning import ProvisioningService
-from .subscription import Response, build_clash_subscription
+from .subscription import Response, build_base64_subscription, build_clash_subscription, build_singbox_subscription
 from .usage_sync import UsageSyncService
 from .worker import PeriodicSyncWorker
 from .xui_api import XuiClient
@@ -62,18 +63,31 @@ class XuiManagerApp:
             if method == "GET" and path == "/api/me":
                 user = self.user_from_headers(headers)
                 return self.json_response({"user": self.user_summary(user, headers) if user else None})
-            if method == "POST" and path == "/api/applications":
+            if method == "GET" and path == "/api/balance/transactions":
                 user = self.user_from_headers(headers)
-                if not user:
-                    return self.json_response({"error": "请先登录后再申请套餐"}, 401)
+                if not user or user.get("role") != "user":
+                    return self.json_response({"error": "请先登录"}, 401)
+                return self.json_response({"transactions": self.db.list_balance_transactions(user["id"])})
+            if method == "POST" and path == "/api/recharge":
+                user = self.user_from_headers(headers)
+                if not user or user.get("role") != "user":
+                    return self.json_response({"error": "请先登录后再充值"}, 401)
                 guard = self.require_mutation_headers(headers)
                 if guard:
                     return guard
-                applied = self.db.apply_plan(user["id"], int(payload["plan_id"]))
-                data: dict[str, Any] = {"user": self.user_summary(applied, headers)}
-                if applied["status"] == "active":
-                    data["provisioning"] = self.provisioning.provision_user(applied["id"])
-                    data["errors"] = self.provisioning.failure_details_for_user(applied["id"])
+                recharged = self.db.redeem_recharge_card(user["id"], payload["code"])
+                return self.json_response({"user": self.user_summary(recharged, headers)})
+            if method == "POST" and path in {"/api/purchases", "/api/applications"}:
+                user = self.user_from_headers(headers)
+                if not user or user.get("role") != "user":
+                    return self.json_response({"error": "请先登录后再购买套餐"}, 401)
+                guard = self.require_mutation_headers(headers)
+                if guard:
+                    return guard
+                purchased = self.db.purchase_plan(user["id"], int(payload["plan_id"]))
+                data: dict[str, Any] = {"user": self.user_summary(purchased, headers)}
+                data["provisioning"] = self.provisioning.activate_purchased_plan(purchased["id"])
+                data["errors"] = self.provisioning.failure_details_for_user(purchased["id"])
                 return self.json_response(data)
             if path.startswith("/api/admin/"):
                 user = self.require_admin(headers)
@@ -93,6 +107,28 @@ class XuiManagerApp:
     def handle_admin(self, method: str, path: str, headers: dict[str, str], payload: dict[str, Any]) -> Response:
         if method == "GET" and path == "/api/admin/users":
             return self.json_response({"users": [self.admin_user_summary(user, headers) for user in self.db.list_users()]})
+        if method == "POST" and path == "/api/admin/users/balance":
+            admin = self.user_from_headers(headers)
+            adjusted = self.db.adjust_user_balance(
+                int(payload["user_id"]),
+                yuan_to_cents(payload["amount_yuan"]),
+                payload["note"],
+                admin["id"],
+            )
+            return self.json_response({"user": self.admin_user_summary(adjusted, headers)})
+        if method == "POST" and path == "/api/admin/users/note":
+            noted = self.db.update_user_note(
+                int(payload["user_id"]), payload.get("note", ""), bool(payload.get("is_priority", False))
+            )
+            return self.json_response({"user": self.admin_user_summary(noted, headers)})
+        if method == "GET" and path == "/api/admin/recharge-cards":
+            return self.json_response({"cards": self.db.list_recharge_cards()})
+        if method == "POST" and path == "/api/admin/recharge-cards":
+            admin = self.user_from_headers(headers)
+            cards = self.db.create_recharge_cards(
+                yuan_to_cents(payload["amount_yuan"]), int(payload.get("count", 1)), admin["id"]
+            )
+            return self.json_response({"cards": cards})
         if method == "POST" and path == "/api/admin/users/approve":
             existing = self.db.get_user(int(payload["user_id"]))
             if not existing:
@@ -153,8 +189,9 @@ class XuiManagerApp:
                 float(payload["quota_gb"]),
                 int(payload["duration_days"]),
                 tags_from_payload(payload.get("allowed_tags")),
-                bool(payload.get("require_approval", True)),
+                False,
                 bool(payload.get("enabled", True)),
+                yuan_to_cents(payload.get("price_yuan", 0)),
             )
             if payload.get("id"):
                 return self.json_response({"plan": self.db.update_plan(int(payload["id"]), *args)})
@@ -252,8 +289,16 @@ class XuiManagerApp:
             "subscription_title": self.db.get_setting("subscription_title", ""),
         }
 
-    def subscription(self, token: str) -> Response:
-        return build_clash_subscription(self.db, token)
+    def subscription(self, token: str, format_name: str = "clash") -> Response:
+        builders = {
+            "clash": build_clash_subscription,
+            "base64": build_base64_subscription,
+            "singbox": build_singbox_subscription,
+        }
+        builder = builders.get(format_name)
+        if not builder:
+            return Response(404, "not found\n", {"Content-Type": "text/plain; charset=utf-8"})
+        return builder(self.db, token)
 
     def static_response(self, path: str) -> Response:
         if path in {"", "/"}:
@@ -301,10 +346,13 @@ class XuiManagerApp:
         data["download_bytes"] = totals["download"]
         data["remaining_bytes"] = max(quota - used, 0) if quota else 0
         data["subscription_url"] = subscription_url(user["token"], headers or {}) if user.get("token") else ""
+        data["subscription_urls"] = subscription_urls(user["token"], headers or {}) if user.get("token") else {}
         return data
 
     def admin_user_summary(self, user: dict[str, Any], headers: dict[str, str] | None = None) -> dict[str, Any]:
         data = self.user_summary(user, headers)
+        data["admin_note"] = user.get("admin_note", "")
+        data["is_priority"] = bool(user.get("is_priority", False))
         data["provisioning"] = self.provisioning.status_for_user(user["id"])
         data["provisioning_errors"] = self.provisioning.failure_details_for_user(user["id"])
         return data
@@ -320,7 +368,7 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
     return {
         key: value
         for key, value in user.items()
-        if key not in {"password_hash"}
+        if key not in {"password_hash", "admin_note", "is_priority"}
     }
 
 
@@ -372,12 +420,30 @@ def tags_from_payload(value: Any) -> list[str]:
     return [item.strip() for item in str(value).split(",") if item.strip()]
 
 
+def yuan_to_cents(value: Any) -> int:
+    try:
+        amount = Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError("金额格式不正确") from exc
+    return int(amount * 100)
+
+
 def subscription_url(token: str, headers: dict[str, str]) -> str:
     host = headers.get("X-Forwarded-Host") or headers.get("Host")
     if not host:
         return f"/sub/clash/{token}"
     proto = headers.get("X-Forwarded-Proto") or "http"
     return f"{proto}://{host}/sub/clash/{token}"
+
+
+def subscription_urls(token: str, headers: dict[str, str]) -> dict[str, str]:
+    clash = subscription_url(token, headers)
+    base = clash.rsplit("/sub/clash/", 1)[0]
+    return {
+        "clash": clash,
+        "base64": f"{base}/sub/base64/{token}",
+        "singbox": f"{base}/sub/singbox/{token}",
+    }
 
 
 def create_app(db_path: str | Path) -> XuiManagerApp:
@@ -395,9 +461,14 @@ def make_handler(app: XuiManagerApp) -> type[BaseHTTPRequestHandler]:
 
         def do_GET(self) -> None:  # noqa: N802
             path = urllib.parse.urlparse(self.path).path
-            if path.startswith("/sub/clash/"):
+            if path.startswith("/sub/"):
+                parts = path.strip("/").split("/")
+                if len(parts) != 3:
+                    self.write_response(Response(404, "not found\n", {"Content-Type": "text/plain; charset=utf-8"}))
+                    return
+                format_name = parts[1]
                 token = path.rsplit("/", 1)[-1]
-                self.write_response(app.subscription(token))
+                self.write_response(app.subscription(token, format_name))
                 return
             if path.startswith("/api/"):
                 self.write_response(app.handle_json("GET", path, self.header_map(), ""))

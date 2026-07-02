@@ -4,6 +4,9 @@ const state = {
   users: [],
   panels: [],
   nodes: [],
+  rechargeCards: [],
+  transactions: [],
+  expandedUsers: new Set(),
   settings: {},
   inbounds: [],
   view: "storefront",
@@ -89,6 +92,14 @@ function quotaGb(plan) {
   return ((Number(plan.quota_bytes || 0) / 1024 ** 3) || 0).toFixed(0);
 }
 
+function formatMoney(cents) {
+  return `¥${(Number(cents || 0) / 100).toFixed(2)}`;
+}
+
+function priceYuan(plan) {
+  return (Number(plan.price_cents || 0) / 100).toFixed(2);
+}
+
 function toDate(seconds) {
   if (!seconds) return "-";
   return new Date(Number(seconds) * 1000).toLocaleDateString("zh-CN");
@@ -96,8 +107,8 @@ function toDate(seconds) {
 
 function statusText(status) {
   return {
-    unsubscribed: "未申请",
-    pending: "待审核",
+    unsubscribed: "未购买",
+    pending: "历史待审核",
     active: "已开通",
     disabled: "已停用",
   }[status] || status || "未知";
@@ -158,7 +169,10 @@ window.addEventListener("unhandledrejection", (event) => {
 
 async function withSubmitState(event, action) {
   event.preventDefault();
-  const form = event.currentTarget;
+  return withFormState(event.currentTarget, action);
+}
+
+async function withFormState(form, action) {
   if (form.dataset.submitting === "true") return;
   const button = form.querySelector("button[type=submit]");
   const originalText = button?.textContent || "";
@@ -177,6 +191,35 @@ async function withSubmitState(event, action) {
       button.disabled = false;
       button.textContent = originalText;
     }
+  }
+}
+
+async function handleDynamicSubmit(event) {
+  const form = event.target instanceof HTMLFormElement ? event.target : null;
+  if (!form) return;
+  if (form.matches("[data-user-balance-form]")) {
+    event.preventDefault();
+    await withFormState(form, async () => {
+      await api("/api/admin/users/balance", {
+        method: "POST",
+        body: JSON.stringify({ ...formData(form), user_id: form.dataset.userBalanceForm }),
+        loadingLabel: "正在调整用户余额",
+      });
+      await refreshAdmin();
+      showNotice("用户余额已更新");
+    });
+  }
+  if (form.matches("[data-user-note-form]")) {
+    event.preventDefault();
+    await withFormState(form, async () => {
+      await api("/api/admin/users/note", {
+        method: "POST",
+        body: JSON.stringify({ ...formData(form), user_id: form.dataset.userNoteForm }),
+        loadingLabel: "正在保存用户备注",
+      });
+      await refreshAdmin();
+      showNotice("用户备注已保存");
+    });
   }
 }
 
@@ -205,31 +248,39 @@ async function refreshPublic() {
 async function refreshMe() {
   const data = await api("/api/me", { loadingLabel: "正在读取账号" });
   state.me = data.user;
+  if (state.me?.role === "user") await refreshBalanceTransactions();
   renderAuth();
   if (state.me?.role === "admin") await refreshAdmin();
 }
 
 async function refreshAdmin() {
-  const [users, plans, panels, nodes, settings] = await Promise.all([
+  const [users, plans, panels, nodes, settings, rechargeCards] = await Promise.all([
     api("/api/admin/users", { loadingLabel: "正在读取后台数据" }),
     api("/api/admin/plans", { loadingLabel: "正在读取后台数据" }),
     api("/api/admin/panels", { loadingLabel: "正在读取后台数据" }),
     api("/api/admin/nodes", { loadingLabel: "正在读取后台数据" }),
     api("/api/admin/settings", { loadingLabel: "正在读取后台数据" }),
+    api("/api/admin/recharge-cards", { loadingLabel: "正在读取后台数据" }),
   ]);
   state.users = users.users || [];
   state.plans = plans.plans || state.plans;
   state.panels = panels.panels || [];
   state.nodes = nodes.nodes || [];
   state.settings = settings.settings || {};
+  state.rechargeCards = rechargeCards.cards || [];
   renderAdmin();
   renderPlanCatalog();
+}
+
+async function refreshBalanceTransactions() {
+  const data = await api("/api/balance/transactions", { loadingLabel: "正在读取余额记录" });
+  state.transactions = data.transactions || [];
 }
 
 function renderAuth() {
   const loggedIn = Boolean(state.me);
   const isAdmin = state.me?.role === "admin";
-  $("#sessionEmail").textContent = loggedIn ? state.me.email : "游客";
+  $("#sessionEmail").textContent = loggedIn ? (isAdmin ? "管理员控制台" : "个人中心") : "游客";
   $("#loginBtn").classList.toggle("hidden", loggedIn);
   $("#registerBtn").classList.toggle("hidden", loggedIn);
   $("#refreshBtn").classList.toggle("hidden", !loggedIn);
@@ -244,9 +295,9 @@ function renderAuth() {
   }
 
   const statusMessages = {
-    unsubscribed: "尚未申请套餐，可返回商城选择一个实时套餐。",
-    pending: "申请已提交，正在等待管理员审核。",
-    active: "账号已开通，可复制订阅链接导入 Clash 使用。",
+    unsubscribed: "尚未购买套餐，可充值余额后在商城即时开通。",
+    pending: "该账号来自旧版审核流程，可直接购买新套餐。",
+    active: "账号已开通，可按客户端复制对应订阅链接。",
     disabled: "账号已停用，如有疑问请联系管理员。",
   };
   $("#accountStatus").textContent = statusMessages[state.me.status] || "账号状态未知。";
@@ -254,18 +305,31 @@ function renderAuth() {
   $("#usedText").textContent = formatBytes(state.me.used_bytes);
   $("#remainText").textContent = formatBytes(state.me.remaining_bytes);
   $("#expireText").textContent = toDate(state.me.expire_at);
-  $("#subscriptionUrl").value = state.me.subscription_url || "";
+  $("#balanceText").textContent = formatMoney(state.me.balance_cents);
+  const subscriptionUrls = state.me.subscription_urls || {};
+  $("#subscriptionUrl").value = subscriptionUrls.clash || state.me.subscription_url || "";
+  $("#base64SubscriptionUrl").value = subscriptionUrls.base64 || "";
+  $("#singboxSubscriptionUrl").value = subscriptionUrls.singbox || "";
   $("#copySubBtn").disabled = state.me.status !== "active" || !state.me.subscription_url;
+  renderTransactions();
   renderPlanCatalog();
 }
 
+function renderTransactions() {
+  const target = $("#balanceTransactions");
+  if (!target) return;
+  target.innerHTML = state.transactions.length
+    ? state.transactions.slice(0, 8).map((item) => `<div class="transaction-item"><span><strong>${escapeHtml(item.note || item.kind)}</strong><small>${new Date(item.created_at * 1000).toLocaleString("zh-CN")}</small></span><b class="${item.amount_cents >= 0 ? "credit" : "debit"}">${item.amount_cents >= 0 ? "+" : ""}${formatMoney(item.amount_cents)}</b></div>`).join("")
+    : '<span class="meta">暂无余额记录</span>';
+}
+
 function planAction(plan) {
-  if (!state.me) return { label: "立即申请", disabled: false };
-  if (state.me.role === "admin") return { label: "管理员不可申请", disabled: true };
-  if (state.me.status === "unsubscribed") return { label: "立即申请", disabled: false };
-  if (state.me.status === "pending") return { label: "申请审核中", disabled: true };
-  if (state.me.status === "active") return { label: "已有生效套餐", disabled: true };
-  return { label: "账号已停用", disabled: true };
+  if (!state.me) return { label: "登录购买", disabled: false };
+  if (state.me.role === "admin") return { label: "管理员不可购买", disabled: true };
+  if (state.me.status === "disabled") return { label: "账号已停用", disabled: true };
+  if (Number(state.me.balance_cents || 0) < Number(plan.price_cents || 0)) return { label: "余额不足", disabled: true };
+  if (state.me.status === "active") return { label: "续费 / 更换", disabled: false };
+  return { label: "余额购买", disabled: false };
 }
 
 function renderPlanCatalog() {
@@ -283,10 +347,11 @@ function renderPlanCatalog() {
         <div>
           <span class="plan-index">PLAN ${String(index + 1).padStart(2, "0")}</span>
           <h3>${escapeHtml(plan.name)}</h3>
+          <p class="plan-price">${formatMoney(plan.price_cents)}</p>
           <p class="plan-quota">${escapeHtml(formatBytes(plan.quota_bytes))}</p>
           <div class="plan-meta">
             <span>${plan.duration_days} 天有效</span>
-            <span>${plan.require_approval ? "人工审核" : "自动开通"}</span>
+            <span>余额即时开通</span>
           </div>
         </div>
         <button type="button" data-apply-plan="${plan.id}" ${action.disabled ? "disabled" : ""}>${action.label}</button>
@@ -300,6 +365,7 @@ function renderAdmin() {
   renderPlans();
   renderPanels();
   renderNodes();
+  renderRechargeCards();
   renderUsageOptions();
   renderSettings();
 }
@@ -307,8 +373,7 @@ function renderAdmin() {
 function userActionButtons(user) {
   if (user.role === "admin") return '<span class="meta">系统管理员</span>';
   const plannedActions = user.plan_id
-    ? `${user.status === "pending" ? `<button data-approve="${user.id}">通过</button>` : ""}
-       <button class="ghost" data-retry-provision="${user.id}">重试开通</button>
+    ? `<button class="ghost" data-retry-provision="${user.id}">重试开通</button>
        <button class="ghost" data-reconcile-user="${user.id}">对账</button>`
     : "";
   const lifecycle = user.status === "disabled"
@@ -318,30 +383,69 @@ function userActionButtons(user) {
   return plannedActions + lifecycle;
 }
 
+function filteredUsers() {
+  const query = ($("#userSearch")?.value || "").trim().toLowerCase();
+  const status = $("#userStatusFilter")?.value || "";
+  const role = $("#userRoleFilter")?.value || "";
+  const priority = $("#priorityFilter")?.value || "";
+  return state.users.filter((user) => {
+    const searchable = `${user.email || ""} ${user.admin_note || ""}`.toLowerCase();
+    return (!query || searchable.includes(query))
+      && (!status || user.status === status)
+      && (!role || user.role === role)
+      && (!priority || user.is_priority);
+  });
+}
+
+function userDetail(user) {
+  const errorText = provisioningErrorSummary(user.provisioning_errors);
+  if (user.role === "admin") return `<div class="user-detail"><p class="meta">系统管理员账号不参与套餐购买和余额运营。</p></div>`;
+  return `<div class="user-detail">
+    <div class="user-detail-summary">
+      <span><small>开通状态</small><strong>${escapeHtml(provisioningSummary(user.provisioning) || "-")}</strong></span>
+      <span><small>备注</small><strong>${escapeHtml(user.admin_note || "暂无备注")}</strong></span>
+      ${errorText ? `<p class="error-text">${escapeHtml(errorText)}</p>` : ""}
+    </div>
+    <form class="inline-form" data-user-balance-form="${user.id}">
+      <label>余额调整（元）<input name="amount_yuan" type="number" step="0.01" placeholder="增加填正数，扣减填负数" required></label>
+      <label>原因<input name="note" maxlength="120" placeholder="充值、补偿或退款" required></label>
+      <button type="submit">调整余额</button>
+    </form>
+    <form class="inline-form note-form" data-user-note-form="${user.id}">
+      <label>用户备注<input name="note" maxlength="500" value="${escapeHtml(user.admin_note || "")}" placeholder="记录来源、偏好或跟进信息"></label>
+      <label class="check"><input name="is_priority" type="checkbox" ${user.is_priority ? "checked" : ""}>标为重点用户</label>
+      <button type="submit" class="ghost">保存备注</button>
+    </form>
+    <div class="actions">${userActionButtons(user)}</div>
+  </div>`;
+}
+
 function renderUsers() {
-  const rows = state.users.map((user) => {
+  const users = filteredUsers();
+  $("#userResultCount").textContent = `显示 ${users.length} / ${state.users.length} 位用户`;
+  const rows = users.map((user) => {
     const plan = state.plans.find((item) => item.id === user.plan_id);
-    const provisionText = provisioningSummary(user.provisioning);
-    const errorText = provisioningErrorSummary(user.provisioning_errors);
-    return `<tr>
-      <td><strong>${escapeHtml(user.email)}</strong></td>
+    const expanded = state.expandedUsers.has(Number(user.id));
+    return `<tr class="user-row ${user.is_priority ? "priority-user" : ""}">
+      <td><strong>${user.is_priority ? "★ " : ""}${escapeHtml(user.email)}</strong>${user.admin_note ? `<small class="user-note-preview">${escapeHtml(user.admin_note)}</small>` : ""}</td>
       <td><span class="status ${user.status}">${statusText(user.status)}</span></td>
+      <td>${user.role === "admin" ? "管理员" : "普通用户"}</td>
       <td>${escapeHtml(plan?.name || "未选择")}</td>
+      <td>${formatMoney(user.balance_cents)}</td>
       <td>${formatBytes(user.used_bytes)} / ${formatBytes(user.quota_bytes)}</td>
       <td>${toDate(user.expire_at)}</td>
-      <td><div class="meta">${escapeHtml(provisionText || "-")}</div>${errorText ? `<div class="error-text">${escapeHtml(errorText)}</div>` : ""}</td>
-      <td><div class="actions">${userActionButtons(user)}</div></td>
-    </tr>`;
+      <td><button class="ghost" data-toggle-user="${user.id}" aria-expanded="${expanded}">${expanded ? "收起" : "详情"}</button></td>
+    </tr><tr class="user-detail-row ${expanded ? "" : "hidden"}"><td colspan="8">${userDetail(user)}</td></tr>`;
   }).join("");
   $("#userRows").innerHTML = rows;
-  $("#userCardList").innerHTML = state.users.map((user) => {
+  $("#userCardList").innerHTML = users.map((user) => {
     const plan = state.plans.find((item) => item.id === user.plan_id);
-    const errorText = provisioningErrorSummary(user.provisioning_errors);
-    return `<article class="user-card">
-      <header><h3>${escapeHtml(user.email)}</h3><span class="status ${user.status}">${statusText(user.status)}</span></header>
-      <div class="user-card-meta"><span>${escapeHtml(plan?.name || "未选择套餐")}</span><span>${formatBytes(user.used_bytes)} / ${formatBytes(user.quota_bytes)}</span></div>
-      ${errorText ? `<div class="error-text">${escapeHtml(errorText)}</div>` : ""}
-      <div class="actions">${userActionButtons(user)}</div>
+    const expanded = state.expandedUsers.has(Number(user.id));
+    return `<article class="user-card ${user.is_priority ? "priority-user" : ""}">
+      <header><h3>${user.is_priority ? "★ " : ""}${escapeHtml(user.email)}</h3><span class="status ${user.status}">${statusText(user.status)}</span></header>
+      <div class="user-card-meta"><span>${escapeHtml(plan?.name || "未选择套餐")}</span><span>${formatMoney(user.balance_cents)}</span><span>${formatBytes(user.used_bytes)} / ${formatBytes(user.quota_bytes)}</span></div>
+      <button class="ghost" data-toggle-user="${user.id}" aria-expanded="${expanded}">${expanded ? "收起详情" : "展开详情"}</button>
+      ${expanded ? userDetail(user) : ""}
     </article>`;
   }).join("");
 }
@@ -350,9 +454,17 @@ function renderPlans() {
   $("#planList").innerHTML = state.plans
     .map((plan) => `<article class="row-card">
       <header><strong>${escapeHtml(plan.name)}</strong><span class="row-actions"><button data-edit-plan="${plan.id}" class="ghost">编辑</button><button data-delete-plan="${plan.id}" class="danger">删除</button></span></header>
-      <span class="meta">${formatBytes(plan.quota_bytes)} / ${plan.duration_days} 天 / 标签：${escapeHtml((plan.allowed_tags || []).join(",") || "全部")}</span>
+      <span class="meta">${formatMoney(plan.price_cents)} / ${formatBytes(plan.quota_bytes)} / ${plan.duration_days} 天 / 标签：${escapeHtml((plan.allowed_tags || []).join(",") || "全部")}</span>
     </article>`)
     .join("");
+}
+
+function renderRechargeCards() {
+  const target = $("#rechargeCardList");
+  if (!target) return;
+  target.innerHTML = state.rechargeCards.length
+    ? state.rechargeCards.map((card) => `<article class="row-card"><header><strong>${escapeHtml(card.masked_code)}</strong><span class="status ${card.status === "used" ? "disabled" : "active"}">${card.status === "used" ? "已使用" : "未使用"}</span></header><span class="meta">${formatMoney(card.amount_cents)}${card.redeemed_by_email ? ` / ${escapeHtml(card.redeemed_by_email)}` : ""} / ${new Date(card.created_at * 1000).toLocaleString("zh-CN")}</span></article>`).join("")
+    : '<div class="empty-state">尚未生成充值卡</div>';
 }
 
 function renderPanels() {
@@ -422,11 +534,12 @@ function resetFormMode(form, title, submit, label, submitText) {
 }
 
 function resetPlanForm() {
-  resetFormMode($("#planForm"), $("#planFormTitle"), $("#planSubmitBtn"), "套餐", "添加套餐");
+  resetFormMode($("#planForm"), $("#planFormTitle"), $("#planSubmitBtn"), "套餐", "保存套餐");
+  $("#planForm").elements.enabled.checked = true;
 }
 
 function resetPanelForm() {
-  resetFormMode($("#panelForm"), $("#panelFormTitle"), $("#panelSubmitBtn"), " X-UI 面板", "添加面板");
+  resetFormMode($("#panelForm"), $("#panelFormTitle"), $("#panelSubmitBtn"), " X-UI 面板", "保存面板");
   $("#panelPasswordHelp").textContent = "新建面板时请填写密码；编辑已有面板时留空保留已保存密码。";
 }
 
@@ -475,7 +588,7 @@ function openAuth(tab = "login") {
   }
   state.authReturnFocus = document.activeElement;
   showAuthTab(tab);
-  $("#authContext").textContent = state.pendingPlanId ? "登录或注册后，将自动继续申请所选套餐。" : "登录后继续管理你的订阅。";
+  $("#authContext").textContent = state.pendingPlanId ? "登录或注册后，将继续购买所选套餐。" : "登录后继续管理你的订阅。";
   const dialog = $("#authDialog");
   if (!dialog.open) dialog.showModal();
 }
@@ -488,28 +601,35 @@ function closeAuth(discardPending = false) {
   state.authReturnFocus = null;
 }
 
-async function requestApplication(planId) {
+async function requestPurchase(planId) {
   state.pendingPlanId = Number(planId);
   if (!state.me) {
     openAuth("login");
     return;
   }
-  await submitApplication();
+  await submitPurchase();
 }
 
-async function submitApplication() {
+async function submitPurchase() {
   if (!state.pendingPlanId) return;
-  const data = await api("/api/applications", {
+  const plan = state.plans.find((item) => Number(item.id) === Number(state.pendingPlanId));
+  if (!plan) throw new Error("套餐不存在");
+  if (!window.confirm(`确认使用余额 ${formatMoney(plan.price_cents)} 购买「${plan.name}」吗？购买后立即生效。`)) {
+    state.pendingPlanId = null;
+    return;
+  }
+  const data = await api("/api/purchases", {
     method: "POST",
     body: JSON.stringify({ plan_id: state.pendingPlanId }),
-    loadingLabel: "正在提交套餐申请",
+    loadingLabel: "正在购买并开通套餐",
   });
   state.pendingPlanId = null;
   state.me = data.user;
+  await refreshBalanceTransactions();
   renderAuth();
   closeAuth(false);
   setView("account");
-  showNotice(state.me.status === "active" ? "套餐已自动开通" : "申请已提交，等待管理员审核");
+  showNotice(provisioningNotice("套餐购买成功", data.provisioning, data.errors));
 }
 
 async function finishAuthentication(user) {
@@ -517,7 +637,7 @@ async function finishAuthentication(user) {
   renderAuth();
   if (state.me?.role === "admin") await refreshAdmin();
   closeAuth(false);
-  if (state.pendingPlanId && state.me?.role === "user") await submitApplication();
+  if (state.pendingPlanId && state.me?.role === "user") await submitPurchase();
   else setView(state.me?.role === "admin" ? "admin" : "account");
 }
 
@@ -556,12 +676,32 @@ async function handleDocumentClick(event) {
   }
   const applyButton = target.closest("[data-apply-plan]");
   if (applyButton) {
-    await requestApplication(applyButton.dataset.applyPlan);
+    await requestPurchase(applyButton.dataset.applyPlan);
+    return;
+  }
+
+  const copySubscription = target.closest("[data-copy-sub]");
+  if (copySubscription) {
+    await copyTextFromInput($(`[data-sub-format="${copySubscription.dataset.copySub}"]`));
+    showNotice("订阅链接已复制");
+    return;
+  }
+
+  const closeDialog = target.closest("[data-close-dialog]");
+  if (closeDialog) {
+    $("#" + closeDialog.dataset.closeDialog)?.close();
     return;
   }
 
   const action = target.closest("button");
   if (!action) return;
+  if (action.dataset.toggleUser) {
+    const id = Number(action.dataset.toggleUser);
+    if (state.expandedUsers.has(id)) state.expandedUsers.delete(id);
+    else state.expandedUsers.add(id);
+    renderUsers();
+    return;
+  }
   if (action.dataset.approve) {
     const result = await api("/api/admin/users/approve", { method: "POST", body: JSON.stringify({ user_id: action.dataset.approve }), loadingLabel: "正在审核用户" });
     await refreshAdmin();
@@ -622,14 +762,14 @@ async function handleDocumentClick(event) {
   }
   if (action.dataset.editPlan) {
     const plan = state.plans.find((item) => String(item.id) === action.dataset.editPlan);
-    setFormMode($("#planForm"), $("#planFormTitle"), $("#planSubmitBtn"), "套餐", { ...plan, quota_gb: quotaGb(plan), allowed_tags: plan.allowed_tags || [] });
-    setView("settings");
+    setFormMode($("#planForm"), $("#planFormTitle"), $("#planSubmitBtn"), "套餐", { ...plan, price_yuan: priceYuan(plan), quota_gb: quotaGb(plan), allowed_tags: plan.allowed_tags || [] });
+    $("#planDialog").showModal();
   }
   if (action.dataset.editPanel) {
     const panel = state.panels.find((item) => String(item.id) === action.dataset.editPanel);
     setFormMode($("#panelForm"), $("#panelFormTitle"), $("#panelSubmitBtn"), " X-UI 面板", panel);
     $("#panelPasswordHelp").textContent = panel.has_password ? "已保存密码；留空会继续使用原密码，填写新密码才会替换。" : "当前没有保存密码，请填写新密码。";
-    setView("settings");
+    $("#panelDialog").showModal();
   }
   if (action.dataset.editNode) {
     fillForm($("#nodeForm"), state.nodes.find((item) => String(item.id) === action.dataset.editNode));
@@ -640,6 +780,9 @@ async function handleDocumentClick(event) {
 function bindEvents() {
   document.addEventListener("click", (event) => {
     handleDocumentClick(event).catch((error) => showNotice(error?.message || "操作失败"));
+  });
+  document.addEventListener("submit", (event) => {
+    handleDynamicSubmit(event).catch((error) => showNotice(error?.message || "操作失败"));
   });
   $("#authDialog").addEventListener("cancel", () => {
     state.pendingPlanId = null;
@@ -666,8 +809,23 @@ function bindEvents() {
     renderAuth();
     showNotice("已退出登录");
   });
-  $("#newPlanBtn").addEventListener("click", resetPlanForm);
-  $("#newPanelBtn").addEventListener("click", resetPanelForm);
+  $("#newPlanBtn").addEventListener("click", () => {
+    resetPlanForm();
+    $("#planDialog").showModal();
+  });
+  $("#newPanelBtn").addEventListener("click", () => {
+    resetPanelForm();
+    $("#panelDialog").showModal();
+  });
+  ["userSearch", "userStatusFilter", "userRoleFilter", "priorityFilter"].forEach((id) => {
+    $("#" + id).addEventListener(id === "userSearch" ? "input" : "change", renderUsers);
+  });
+  $("#toggleUserListBtn").addEventListener("click", (event) => {
+    const region = $("#userListRegion");
+    const collapsed = region.classList.toggle("collapsed");
+    event.currentTarget.textContent = collapsed ? "展开列表" : "折叠列表";
+    event.currentTarget.setAttribute("aria-expanded", String(!collapsed));
+  });
   $("#syncUsageBtn").addEventListener("click", async () => {
     const result = await api("/api/admin/sync-usage", { method: "POST", body: "{}", loadingLabel: "正在同步 X-UI 用量" });
     await refreshAdmin();
@@ -684,6 +842,24 @@ function bindEvents() {
     showNotice("登录成功");
   }));
 
+  $("#rechargeForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
+    const data = await api("/api/recharge", { method: "POST", body: JSON.stringify(formData(form)), loadingLabel: "正在兑换充值卡" });
+    state.me = data.user;
+    form.reset();
+    await refreshBalanceTransactions();
+    renderAuth();
+    showNotice("充值成功，余额已到账");
+  }));
+
+  $("#rechargeCardForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
+    const data = await api("/api/admin/recharge-cards", { method: "POST", body: JSON.stringify(formData(form)), loadingLabel: "正在生成充值卡" });
+    const codes = (data.cards || []).map((card) => `${card.code}    ${formatMoney(card.amount_cents)}`);
+    $("#generatedCardCodes").textContent = codes.join("\n");
+    $("#generatedCardCodes").classList.toggle("hidden", !codes.length);
+    await refreshAdmin();
+    showNotice(`已生成 ${codes.length} 张充值卡，请立即保存`);
+  }));
+
   $("#registerForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
     const data = await api("/api/register", { method: "POST", body: JSON.stringify(formData(form)), loadingLabel: "正在创建账号" });
     form.reset();
@@ -694,6 +870,7 @@ function bindEvents() {
   $("#planForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
     const editing = form.dataset.mode === "edit";
     await api("/api/admin/plans", { method: "POST", body: JSON.stringify(formData(form)) });
+    $("#planDialog").close();
     resetPlanForm();
     await refreshAdmin();
     showNotice(editing ? "套餐修改已保存" : "新套餐已添加");
@@ -702,6 +879,7 @@ function bindEvents() {
   $("#panelForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
     const editing = form.dataset.mode === "edit";
     await api("/api/admin/panels", { method: "POST", body: JSON.stringify(formData(form)) });
+    $("#panelDialog").close();
     resetPanelForm();
     await refreshAdmin();
     showNotice(editing ? "面板修改已保存" : "新面板已添加");

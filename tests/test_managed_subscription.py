@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from xui_manager.db import Database
-from xui_manager.subscription import build_clash_subscription
+from xui_manager.subscription import build_base64_subscription, build_clash_subscription, build_singbox_subscription
 
 
 VLESS = "vless://template@example.com:443?security=tls&sni=edge.example&type=ws&path=%2Fedge#Managed"
@@ -95,6 +95,33 @@ class ManagedSubscriptionTests(unittest.TestCase):
 
         self.assertEqual(body["proxies"], [])
         self.assertIn("total=", response.headers["Subscription-Userinfo"])
+
+    def test_base64_subscription_contains_client_share_links_for_mobile_apps(self):
+        user = self.active_user("mobile@example.com")
+        client = self.provisioned_client(user)
+        self.db.create_node("Static", TROJAN, 1, ["premium"])
+
+        response = build_base64_subscription(self.db, user["token"])
+        decoded = base64.b64decode(response.body).decode("utf-8")
+
+        self.assertEqual(response.status, 200)
+        self.assertIn(client["client_uuid"], decoded)
+        self.assertIn("trojan://pass@static.example.com", decoded)
+        self.assertNotIn("template@", decoded)
+
+    def test_singbox_subscription_contains_selectable_outbounds(self):
+        user = self.active_user("singbox@example.com")
+        client = self.provisioned_client(user)
+
+        response = build_singbox_subscription(self.db, user["token"])
+        payload = json.loads(response.body)
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.headers["Content-Type"], "application/json; charset=utf-8")
+        self.assertEqual(payload["outbounds"][0]["type"], "selector")
+        vless = next(item for item in payload["outbounds"] if item["type"] == "vless")
+        self.assertEqual(vless["uuid"], client["client_uuid"])
+        self.assertEqual(vless["tls"]["server_name"], "edge.example")
 
 
 if __name__ == "__main__":

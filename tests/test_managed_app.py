@@ -73,6 +73,79 @@ class ManagedAppTests(unittest.TestCase):
             merged.update(headers)
         return self.app.handle_json("POST", path, merged, json.dumps(payload))
 
+    def login_user_headers(self, email, password="secret123"):
+        login = self.app.handle_json(
+            "POST", "/api/login", {}, json.dumps({"email": email, "password": password})
+        )
+        return {
+            "Cookie": login.headers["Set-Cookie"].split(";", 1)[0],
+            "Host": "manager.example.com",
+            "Content-Type": "application/json",
+        }
+
+    def test_user_purchases_plan_with_balance_and_receives_provisioning_result(self):
+        plan_id = self.app.db.create_plan("Balance Pro", 100, 30, [], False, price_cents=1299)
+        user = self.app.db.register_user("buyer@example.com", "secret123")
+        self.app.db.adjust_user_balance(user["id"], 2000, "opening credit", self.admin["id"])
+        headers = self.login_user_headers(user["email"])
+
+        response = self.app.handle_json(
+            "POST", "/api/purchases", headers, json.dumps({"plan_id": plan_id})
+        )
+        payload = json.loads(response.body)
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(payload["user"]["balance_cents"], 701)
+        self.assertEqual(payload["user"]["status"], "active")
+        self.assertIn("provisioning", payload)
+
+    def test_recharge_card_admin_generation_user_redemption_and_history(self):
+        user = self.app.db.register_user("recharge@example.com", "secret123")
+        generated = self.post_admin("/api/admin/recharge-cards", {"amount_yuan": 25, "count": 2})
+        cards = json.loads(generated.body)["cards"]
+        headers = self.login_user_headers(user["email"])
+
+        redeemed = self.app.handle_json(
+            "POST", "/api/recharge", headers, json.dumps({"code": cards[0]["code"]})
+        )
+        history = self.app.handle_json("GET", "/api/balance/transactions", headers, "")
+        admin_list = self.app.handle_json("GET", "/api/admin/recharge-cards", self.headers, "")
+
+        self.assertEqual(generated.status, 200)
+        self.assertEqual(redeemed.status, 200)
+        self.assertEqual(json.loads(redeemed.body)["user"]["balance_cents"], 2500)
+        self.assertEqual(json.loads(history.body)["transactions"][0]["kind"], "recharge_card")
+        self.assertNotIn("code_hash", admin_list.body)
+        self.assertNotIn(cards[0]["code"], admin_list.body)
+
+    def test_admin_can_adjust_balance_and_mark_priority_note(self):
+        user = self.app.db.register_user("priority@example.com", "secret123")
+
+        balance = self.post_admin(
+            "/api/admin/users/balance",
+            {"user_id": user["id"], "amount_yuan": 18.5, "note": "售后补偿"},
+        )
+        note = self.post_admin(
+            "/api/admin/users/note",
+            {"user_id": user["id"], "note": "重点续费用户", "is_priority": True},
+        )
+
+        self.assertEqual(json.loads(balance.body)["user"]["balance_cents"], 1850)
+        noted_user = json.loads(note.body)["user"]
+        self.assertEqual(noted_user["admin_note"], "重点续费用户")
+        self.assertTrue(noted_user["is_priority"])
+
+    def test_user_summary_exposes_clash_mobile_and_singbox_subscription_urls(self):
+        user = self.app.db.register_user("formats@example.com", "secret123")
+        headers = self.login_user_headers(user["email"])
+
+        response = self.app.handle_json("GET", "/api/me", headers, "")
+        urls = json.loads(response.body)["user"]["subscription_urls"]
+
+        self.assertEqual(urls["clash"], f"http://manager.example.com/sub/clash/{user['token']}")
+        self.assertEqual(urls["base64"], f"http://manager.example.com/sub/base64/{user['token']}")
+        self.assertEqual(urls["singbox"], f"http://manager.example.com/sub/singbox/{user['token']}")
+
     def test_approve_returns_provisioning_summary(self):
         plan_id = self.app.db.create_plan("Premium", 100, 30, ["premium"], True)
         user = self.app.db.register_user("user@example.com", "secret123", plan_id)
@@ -109,7 +182,7 @@ class ManagedAppTests(unittest.TestCase):
         self.assertIsNone(payload["user"]["plan_id"])
         self.assertIn("Set-Cookie", response.headers)
 
-    def test_authenticated_user_can_apply_for_approval_plan(self):
+    def test_authenticated_user_can_purchase_plan_without_approval(self):
         plan_id = self.app.db.create_plan("Premium", 100, 30, ["premium"], True)
         registration = self.app.handle_json(
             "POST",
@@ -123,19 +196,19 @@ class ManagedAppTests(unittest.TestCase):
             "Content-Type": "application/json",
         }
 
-        response = self.app.handle_json("POST", "/api/applications", headers, json.dumps({"plan_id": plan_id}))
+        response = self.app.handle_json("POST", "/api/purchases", headers, json.dumps({"plan_id": plan_id}))
         payload = json.loads(response.body)
 
         self.assertEqual(response.status, 200)
-        self.assertEqual(payload["user"]["status"], "pending")
+        self.assertEqual(payload["user"]["status"], "active")
         self.assertEqual(payload["user"]["plan_id"], plan_id)
-        self.assertNotIn("provisioning", payload)
+        self.assertIn("provisioning", payload)
 
-    def test_application_requires_login_and_rejects_existing_application(self):
+    def test_purchase_requires_login_and_allows_existing_user_to_renew(self):
         plan_id = self.app.db.create_plan("Premium", 100, 30, [], True)
         unauthenticated = self.app.handle_json(
             "POST",
-            "/api/applications",
+            "/api/purchases",
             {"Content-Type": "application/json"},
             json.dumps({"plan_id": plan_id}),
         )
@@ -146,10 +219,11 @@ class ManagedAppTests(unittest.TestCase):
             "Host": "manager.example.com",
             "Content-Type": "application/json",
         }
-        duplicate = self.app.handle_json("POST", "/api/applications", headers, json.dumps({"plan_id": plan_id}))
+        renewed = self.app.handle_json("POST", "/api/purchases", headers, json.dumps({"plan_id": plan_id}))
 
         self.assertEqual(unauthenticated.status, 401)
-        self.assertEqual(duplicate.status, 400)
+        self.assertEqual(renewed.status, 200)
+        self.assertEqual(json.loads(renewed.body)["user"]["status"], "active")
         self.assertEqual(self.app.db.get_user(user["id"])["plan_id"], plan_id)
 
     def test_auto_active_application_runs_provisioning(self):

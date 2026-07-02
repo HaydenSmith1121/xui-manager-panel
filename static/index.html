@@ -26,7 +26,7 @@
         </nav>
 
         <div class="session">
-          <span class="session-label">当前账号</span>
+          <span class="session-label">登录状态</span>
           <strong id="sessionEmail">游客</strong>
           <div class="session-actions">
             <button id="loginBtn" type="button" data-open-auth="login">登录</button>
@@ -54,8 +54,8 @@
           <div class="hero">
             <div class="hero-copy">
               <p class="eyebrow">KOREA NODE ACCESS</p>
-              <h1>即刻申请，<br><span>连接更轻盈。</span></h1>
-              <p class="hero-lede">实时套餐公开透明。登录后提交申请，审核通过即可获得专属订阅。</p>
+              <h1>余额购买，<br><span>连接即刻生效。</span></h1>
+              <p class="hero-lede">实时套餐公开透明。登录后使用余额付款，无需等待人工审核。</p>
               <div class="hero-actions">
                 <button type="button" data-scroll-plans>查看套餐</button>
                 <button type="button" class="ghost" data-open-auth="login">登录账号</button>
@@ -83,14 +83,14 @@
           <div class="catalog-section" id="plansSection">
             <div class="section-heading">
               <div><p class="eyebrow">AVAILABLE PLANS</p><h2>选择适合你的套餐</h2></div>
-              <p>无需登录即可浏览，申请时再验证账号。</p>
+              <p>无需登录即可浏览，购买时再验证账号与余额。</p>
             </div>
             <div id="planCatalog" class="plan-catalog" aria-live="polite"></div>
           </div>
 
           <div class="storefront-footer">
-            <strong>一次申请，持续掌握。</strong>
-            <p>登录后可查看用量、到期时间与 Clash 订阅链接。</p>
+            <strong>余额购买，即时开通。</strong>
+            <p>登录后可充值、购买套餐，并获取多端订阅链接。</p>
             <button type="button" class="ghost" data-open-auth="register">创建账号</button>
           </div>
         </section>
@@ -101,29 +101,65 @@
             <button id="copySubBtn" type="button">复制订阅链接</button>
           </div>
           <div class="metric-grid">
+            <div class="metric balance-metric"><span>账户余额</span><strong id="balanceText">¥0.00</strong></div>
             <div class="metric"><span>套餐总量</span><strong id="quotaText">-</strong></div>
             <div class="metric"><span>已使用</span><strong id="usedText">-</strong></div>
             <div class="metric"><span>剩余流量</span><strong id="remainText">-</strong></div>
             <div class="metric"><span>到期时间</span><strong id="expireText">-</strong></div>
           </div>
-          <div class="subscription-block">
-            <div><h2>Clash 订阅链接</h2><p>请勿与他人分享；账号停用后链接将无法继续使用。</p></div>
-            <label class="wide"><span class="sr-only">Clash 订阅链接</span><input id="subscriptionUrl" readonly></label>
+          <div class="account-grid">
+            <form id="rechargeForm" class="panel recharge-panel">
+              <div class="form-intro"><h2>充值余额</h2><p>输入管理员发放的一次性充值卡。</p></div>
+              <label>充值卡密<input name="code" autocomplete="off" placeholder="HXY-XXXX-XXXX-XXXX" required></label>
+              <button type="submit">立即充值</button>
+            </form>
+            <div class="panel transaction-panel">
+              <div class="form-intro"><h2>余额记录</h2><p>最近的充值、购买和管理员调整。</p></div>
+              <div id="balanceTransactions" class="transaction-list"><span class="meta">暂无记录</span></div>
+            </div>
+          </div>
+          <div class="subscription-block multi-subscription">
+            <div><h2>多端订阅链接</h2><p>请勿与他人分享；根据客户端选择兼容格式。</p></div>
+            <div class="subscription-formats">
+              <label><span>Clash / Clash Verge（Windows、macOS、Android）</span><span class="copy-field"><input id="subscriptionUrl" data-sub-format="clash" readonly><button type="button" data-copy-sub="clash">复制</button></span></label>
+              <label><span>通用 Base64（v2rayNG、Shadowrocket、Hiddify）</span><span class="copy-field"><input id="base64SubscriptionUrl" data-sub-format="base64" readonly><button type="button" data-copy-sub="base64">复制</button></span></label>
+              <label><span>sing-box（macOS、Android、iOS）</span><span class="copy-field"><input id="singboxSubscriptionUrl" data-sub-format="singbox" readonly><button type="button" data-copy-sub="singbox">复制</button></span></label>
+            </div>
           </div>
         </section>
 
         <section id="adminView" class="view admin-workspace hidden">
           <div class="page-heading">
-            <div><p class="eyebrow">USER OPERATIONS</p><h1>用户管理</h1><p>审核申请、检查开通状态并管理账号生命周期。</p></div>
+            <div><p class="eyebrow">USER OPERATIONS</p><h1>用户管理</h1><p>筛选用户、维护备注、余额与账号生命周期。</p></div>
             <button id="syncUsageBtn" type="button">同步 X-UI 用量</button>
           </div>
+          <div class="user-toolbar panel">
+            <label class="search-field">搜索用户<input id="userSearch" type="search" placeholder="邮箱或备注"></label>
+            <label>状态<select id="userStatusFilter"><option value="">全部状态</option><option value="unsubscribed">未购买</option><option value="active">已开通</option><option value="disabled">已停用</option><option value="pending">历史待审核</option></select></label>
+            <label>类型<select id="userRoleFilter"><option value="">全部类型</option><option value="user">普通用户</option><option value="admin">管理员</option></select></label>
+            <label>重点<select id="priorityFilter"><option value="">全部用户</option><option value="priority">仅重点用户</option></select></label>
+            <button id="toggleUserListBtn" type="button" class="ghost" aria-expanded="true">折叠列表</button>
+            <span id="userResultCount" class="meta"></span>
+          </div>
+          <div id="userListRegion" class="user-list-region">
           <div class="table-wrap desktop-users">
             <table>
-              <thead><tr><th>用户</th><th>状态</th><th>套餐</th><th>用量</th><th>到期</th><th>开通</th><th>操作</th></tr></thead>
+              <thead><tr><th>用户</th><th>状态</th><th>类型</th><th>套餐</th><th>余额</th><th>用量</th><th>到期</th><th>操作</th></tr></thead>
               <tbody id="userRows"></tbody>
             </table>
           </div>
           <div id="userCardList" class="user-card-list"></div>
+          </div>
+          <div class="panel recharge-admin-panel">
+            <div class="form-intro"><h2>一次性充值卡</h2><p>卡密仅在生成后完整展示一次，请立即保存。</p></div>
+            <form id="rechargeCardForm" class="inline-form">
+              <label>面额（元）<input name="amount_yuan" type="number" min="0.01" step="0.01" required></label>
+              <label>数量<input name="count" type="number" min="1" max="100" value="1" required></label>
+              <button type="submit">生成充值卡</button>
+            </form>
+            <pre id="generatedCardCodes" class="generated-codes hidden"></pre>
+            <div id="rechargeCardList" class="row-list compact-list"></div>
+          </div>
           <form id="usageForm" class="panel compact-form">
             <div class="form-intro"><h2>手动录入用量</h2><p>仅用于需要人工校正的静态节点。</p></div>
             <label>用户<select name="user_id" id="usageUser"></select></label>
@@ -158,32 +194,6 @@
 
         <section id="settingsView" class="view admin-workspace hidden">
           <div class="page-heading"><div><p class="eyebrow">SYSTEM SETTINGS</p><h1>系统配置</h1><p>管理套餐、面板和全局订阅设置。</p></div></div>
-          <div class="split">
-            <form id="planForm" class="panel">
-              <div class="form-heading"><h2 id="planFormTitle">新建套餐</h2><button id="newPlanBtn" type="button" class="ghost">新建</button></div>
-              <input name="id" type="hidden">
-              <label>名称<input name="name" required placeholder="300G 月付"></label>
-              <label>总量 GB<input name="quota_gb" type="number" min="0" step="1" required></label>
-              <label>有效天数<input name="duration_days" type="number" min="1" step="1" required></label>
-              <label>允许标签<input name="allowed_tags" placeholder="kr,premium"></label>
-              <label class="check"><input name="require_approval" type="checkbox" checked>需要审核</label>
-              <label class="check"><input name="enabled" type="checkbox" checked>启用</label>
-              <button id="planSubmitBtn" type="submit">添加套餐</button>
-            </form>
-            <form id="panelForm" class="panel">
-              <div class="form-heading"><h2 id="panelFormTitle">新建 X-UI 面板</h2><button id="newPanelBtn" type="button" class="ghost">新建</button></div>
-              <input name="id" type="hidden">
-              <label>名称<input name="name" required placeholder="韩国主面板"></label>
-              <label>面板地址<input name="base_url" required placeholder="https://domain:port/path/"></label>
-              <label>账号<input name="username" autocomplete="off"></label>
-              <label>密码<input name="password" type="password" autocomplete="new-password" placeholder="新建时填写；编辑时留空保留已保存密码"></label>
-              <p id="panelPasswordHelp" class="field-help">编辑已有面板时，密码不会回显；留空保留已保存密码。</p>
-              <label>面板订阅地址<input name="subscription_url" placeholder="可选"></label>
-              <label class="check"><input name="verify_tls" type="checkbox" checked>校验证书</label>
-              <label class="check"><input name="enabled" type="checkbox" checked>启用</label>
-              <button id="panelSubmitBtn" type="submit">添加面板</button>
-            </form>
-          </div>
           <form id="settingsForm" class="panel compact-form settings-form">
             <div class="form-intro"><h2>全局设置</h2><p>控制订阅显示与自动同步。</p></div>
             <label>订阅显示名称<input name="subscription_title" maxlength="80" placeholder="黑心云"></label>
@@ -191,8 +201,8 @@
             <button type="submit">保存设置</button>
           </form>
           <div class="split lists-split">
-            <div class="list-panel"><div class="list-heading"><h2>套餐列表</h2><span>商城实时读取</span></div><div id="planList" class="row-list"></div></div>
-            <div class="list-panel"><div class="list-heading"><h2>面板列表</h2><span>凭据仅本机保存</span></div><div id="panelList" class="row-list"></div></div>
+            <div class="list-panel"><div class="list-heading"><div><h2>套餐列表</h2><span>商城实时读取</span></div><button id="newPlanBtn" type="button">新增套餐</button></div><div id="planList" class="row-list"></div></div>
+            <div class="list-panel"><div class="list-heading"><div><h2>面板列表</h2><span>凭据仅本机保存</span></div><button id="newPanelBtn" type="button">新增面板</button></div><div id="panelList" class="row-list"></div></div>
           </div>
         </section>
       </main>
@@ -230,6 +240,33 @@
           <button type="submit" class="wide-button">创建账号并继续</button>
         </form>
       </div>
+    </dialog>
+
+    <dialog id="planDialog" class="settings-dialog" aria-labelledby="planFormTitle">
+      <form id="planForm" class="dialog-form">
+        <div class="form-heading"><div><p class="eyebrow">PLAN</p><h2 id="planFormTitle">新建套餐</h2></div><button type="button" class="dialog-close" data-close-dialog="planDialog" aria-label="关闭">×</button></div>
+        <input name="id" type="hidden">
+        <label>名称<input name="name" required placeholder="300G 月付"></label>
+        <div class="form-columns"><label>价格（元）<input name="price_yuan" type="number" min="0" step="0.01" required></label><label>总量 GB<input name="quota_gb" type="number" min="0" step="1" required></label></div>
+        <label>有效天数<input name="duration_days" type="number" min="1" step="1" required></label>
+        <label>允许标签<input name="allowed_tags" placeholder="kr,premium"></label>
+        <label class="check"><input name="enabled" type="checkbox" checked>启用</label>
+        <div class="dialog-actions"><button type="button" class="ghost" data-close-dialog="planDialog">取消</button><button id="planSubmitBtn" type="submit">保存套餐</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="panelDialog" class="settings-dialog" aria-labelledby="panelFormTitle">
+      <form id="panelForm" class="dialog-form">
+        <div class="form-heading"><div><p class="eyebrow">X-UI PANEL</p><h2 id="panelFormTitle">新建 X-UI 面板</h2></div><button type="button" class="dialog-close" data-close-dialog="panelDialog" aria-label="关闭">×</button></div>
+        <input name="id" type="hidden">
+        <label>名称<input name="name" required placeholder="韩国主面板"></label>
+        <label>面板地址<input name="base_url" required placeholder="https://domain:port/path/"></label>
+        <div class="form-columns"><label>账号<input name="username" autocomplete="off"></label><label>密码<input name="password" type="password" autocomplete="new-password" placeholder="编辑时留空"></label></div>
+        <p id="panelPasswordHelp" class="field-help">编辑已有面板时，密码不会回显；留空保留已保存密码。</p>
+        <label>面板订阅地址<input name="subscription_url" placeholder="可选"></label>
+        <div class="form-columns"><label class="check"><input name="verify_tls" type="checkbox" checked>校验证书</label><label class="check"><input name="enabled" type="checkbox" checked>启用</label></div>
+        <div class="dialog-actions"><button type="button" class="ghost" data-close-dialog="panelDialog">取消</button><button id="panelSubmitBtn" type="submit">保存面板</button></div>
+      </form>
     </dialog>
 
     <div id="slowLoader" class="slow-loader hidden" role="status" aria-live="polite">

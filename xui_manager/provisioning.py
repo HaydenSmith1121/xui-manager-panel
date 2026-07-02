@@ -28,6 +28,10 @@ class ProvisioningService:
     def retry_user(self, user_id: int) -> dict[str, int]:
         return self.provision_user(user_id)
 
+    def activate_purchased_plan(self, user_id: int) -> dict[str, int]:
+        self.set_user_enabled(user_id, False)
+        return self.provision_user(user_id)
+
     def set_user_enabled(self, user_id: int, enabled: bool) -> dict[str, int]:
         user = self.db.get_user(user_id)
         if not user:
