@@ -3,6 +3,49 @@ import unittest
 
 
 class FrontendTests(unittest.TestCase):
+    def test_public_storefront_and_authentication_are_separate(self):
+        root = Path(__file__).resolve().parents[1]
+        app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
+        index_html = (root / "static" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="storefrontView"', index_html)
+        self.assertIn('id="planCatalog"', index_html)
+        self.assertIn('id="authDialog"', index_html)
+        self.assertIn('data-auth-tab="login"', index_html)
+        self.assertIn('data-auth-tab="register"', index_html)
+        self.assertNotIn('id="registerPlan"', index_html)
+        self.assertIn("pendingPlanId", app_js)
+        self.assertIn("data-apply-plan", app_js)
+        self.assertIn('/api/applications', app_js)
+        self.assertIn("submitApplication", app_js)
+
+    def test_frontend_has_deliberate_desktop_mobile_and_slow_loading_states(self):
+        root = Path(__file__).resolve().parents[1]
+        app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
+        app_css = (root / "static" / "app.css").read_text(encoding="utf-8")
+        index_html = (root / "static" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="mobileNav"', index_html)
+        self.assertIn('id="slowLoader"', index_html)
+        self.assertIn('id="userCardList"', index_html)
+        self.assertIn(".storefront", app_css)
+        self.assertIn(".plan-catalog", app_css)
+        self.assertIn(".mobile-nav", app_css)
+        self.assertIn(".user-card-list", app_css)
+        self.assertIn("position: fixed", app_css)
+        self.assertIn("@media (max-width: 920px)", app_css)
+        self.assertIn("prefers-reduced-motion: reduce", app_css)
+        self.assertIn("loadingCount", app_js)
+        self.assertIn("600", app_js)
+        self.assertIn("elapsed", app_js)
+
+    def test_disabled_user_delete_action_calls_admin_endpoint(self):
+        app_js = (Path(__file__).resolve().parents[1] / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("data-delete-user", app_js)
+        self.assertIn('/api/admin/users/delete', app_js)
+        self.assertIn('user.status === "disabled"', app_js)
+
     def test_async_form_errors_are_shown_to_user(self):
         app_js = Path(__file__).resolve().parents[1] / "static" / "app.js"
         text = app_js.read_text(encoding="utf-8")

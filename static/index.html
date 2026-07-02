@@ -2,89 +2,130 @@
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>X-UI 聚合订阅后台</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f6faff">
+    <title>黑心云 · 订阅管理</title>
     <link rel="stylesheet" href="/app.css">
   </head>
   <body>
-    <div class="shell">
-      <aside class="sidebar">
-        <div class="brand">
-          <span class="brand-mark">X</span>
-          <div>
-            <strong>订阅管理</strong>
-            <span>X-UI Manager</span>
-          </div>
-        </div>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="主导航">
+        <button class="brand brand-button" type="button" data-view="storefront" aria-label="返回商品首页">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 64 64"><path d="M18 43c-7 0-12-4-12-10s5-10 12-10c4-8 15-9 20-2 9-1 16 5 16 12 0 6-5 10-12 10H18Z"/><path class="brand-pulse" d="M15 33h12l5-8 6 15 6-7h13"/></svg>
+          </span>
+          <span><strong>黑心云</strong><small>Cloud access</small></span>
+        </button>
+
         <nav class="nav">
-          <button class="nav-item active" data-view="account">账户</button>
-          <button class="nav-item admin-only" data-view="admin">后台</button>
-          <button class="nav-item admin-only" data-view="nodes">节点</button>
-          <button class="nav-item admin-only" data-view="settings">配置</button>
+          <button class="nav-item active" type="button" data-view="storefront"><span>商城</span><small>实时套餐</small></button>
+          <button class="nav-item user-only hidden" type="button" data-view="account"><span>我的订阅</span><small>用量与链接</small></button>
+          <button class="nav-item admin-only hidden" type="button" data-view="admin"><span>用户</span><small>审核与状态</small></button>
+          <button class="nav-item admin-only hidden" type="button" data-view="nodes"><span>节点</span><small>X-UI 接入</small></button>
+          <button class="nav-item admin-only hidden" type="button" data-view="settings"><span>配置</span><small>套餐与面板</small></button>
         </nav>
+
         <div class="session">
-          <span id="sessionEmail">未登录</span>
+          <span class="session-label">当前账号</span>
+          <strong id="sessionEmail">游客</strong>
           <div class="session-actions">
-            <button id="refreshBtn" class="ghost">刷新</button>
-            <button id="logoutBtn" class="ghost hidden">退出登录</button>
+            <button id="loginBtn" type="button" data-open-auth="login">登录</button>
+            <button id="registerBtn" type="button" class="ghost" data-open-auth="register">注册</button>
+            <button id="refreshBtn" type="button" class="ghost hidden">刷新</button>
+            <button id="logoutBtn" type="button" class="ghost hidden">退出登录</button>
           </div>
         </div>
       </aside>
 
-      <main class="main">
-        <div id="notice" class="notice hidden"></div>
+      <main class="main-shell">
+        <header class="mobile-header">
+          <button class="brand brand-button" type="button" data-view="storefront">
+            <span class="brand-mark" aria-hidden="true">
+              <svg viewBox="0 0 64 64"><path d="M18 43c-7 0-12-4-12-10s5-10 12-10c4-8 15-9 20-2 9-1 16 5 16 12 0 6-5 10-12 10H18Z"/><path class="brand-pulse" d="M15 33h12l5-8 6 15 6-7h13"/></svg>
+            </span>
+            <span><strong>黑心云</strong><small>Cloud access</small></span>
+          </button>
+          <button id="mobileAccountBtn" type="button" class="avatar-button" data-open-auth="login" aria-label="账号">登录</button>
+        </header>
 
-        <section id="authPanel" class="auth-grid">
-          <form id="loginForm" class="panel">
-            <h1>登录</h1>
-            <label>邮箱<input name="email" type="email" autocomplete="email" required></label>
-            <label>密码<input name="password" type="password" autocomplete="current-password" required></label>
-            <button type="submit">登录</button>
-          </form>
+        <div id="notice" class="notice hidden" role="status" aria-live="polite"></div>
 
-          <form id="registerForm" class="panel">
-            <h1>注册</h1>
-            <label>邮箱<input name="email" type="email" autocomplete="email" required></label>
-            <label>密码<input name="password" type="password" autocomplete="new-password" minlength="6" required></label>
-            <label>套餐<select name="plan_id" id="registerPlan"></select></label>
-            <button type="submit">提交申请</button>
-          </form>
+        <section id="storefrontView" class="view storefront">
+          <div class="hero">
+            <div class="hero-copy">
+              <p class="eyebrow">KOREA NODE ACCESS</p>
+              <h1>即刻申请，<br><span>连接更轻盈。</span></h1>
+              <p class="hero-lede">实时套餐公开透明。登录后提交申请，审核通过即可获得专属订阅。</p>
+              <div class="hero-actions">
+                <button type="button" data-scroll-plans>查看套餐</button>
+                <button type="button" class="ghost" data-open-auth="login">登录账号</button>
+              </div>
+              <dl class="hero-facts">
+                <div><dt>实时</dt><dd>读取后台套餐</dd></div>
+                <div><dt>专属</dt><dd>独立订阅链接</dd></div>
+                <div><dt>清晰</dt><dd>用量随时可查</dd></div>
+              </dl>
+            </div>
+            <div class="hero-visual" aria-hidden="true">
+              <div class="cloud-orbit orbit-one"></div>
+              <div class="cloud-orbit orbit-two"></div>
+              <svg class="hero-mark" viewBox="0 0 280 280">
+                <defs><linearGradient id="heroGradient" x1="0" x2="1"><stop offset="0" stop-color="#071833"/><stop offset="1" stop-color="#2168ff"/></linearGradient></defs>
+                <rect x="34" y="34" width="212" height="212" rx="68" fill="url(#heroGradient)"/>
+                <path d="M86 166c-27 0-45-17-45-40s18-40 45-40c16-30 58-33 77-5 37-3 62 19 62 49 0 23-19 37-44 37H86Z" fill="#fff" opacity=".96"/>
+                <path d="M79 129h43l18-27 22 54 23-27h48" fill="none" stroke="#49d8ff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span class="visual-note note-top">Seoul · KR</span>
+              <span class="visual-note note-bottom">Live subscription</span>
+            </div>
+          </div>
+
+          <div class="catalog-section" id="plansSection">
+            <div class="section-heading">
+              <div><p class="eyebrow">AVAILABLE PLANS</p><h2>选择适合你的套餐</h2></div>
+              <p>无需登录即可浏览，申请时再验证账号。</p>
+            </div>
+            <div id="planCatalog" class="plan-catalog" aria-live="polite"></div>
+          </div>
+
+          <div class="storefront-footer">
+            <strong>一次申请，持续掌握。</strong>
+            <p>登录后可查看用量、到期时间与 Clash 订阅链接。</p>
+            <button type="button" class="ghost" data-open-auth="register">创建账号</button>
+          </div>
         </section>
 
-        <section id="accountView" class="view hidden">
-          <div class="toolbar">
-            <div>
-              <h1>我的订阅</h1>
-              <p id="accountStatus"></p>
-            </div>
-            <button id="copySubBtn">复制订阅链接</button>
+        <section id="accountView" class="view account-workspace hidden">
+          <div class="page-heading">
+            <div><p class="eyebrow">MY SUBSCRIPTION</p><h1>我的订阅</h1><p id="accountStatus">正在读取账号状态…</p></div>
+            <button id="copySubBtn" type="button">复制订阅链接</button>
           </div>
           <div class="metric-grid">
-            <div class="metric"><span>总量</span><strong id="quotaText">-</strong></div>
-            <div class="metric"><span>已用</span><strong id="usedText">-</strong></div>
-            <div class="metric"><span>剩余</span><strong id="remainText">-</strong></div>
-            <div class="metric"><span>到期</span><strong id="expireText">-</strong></div>
+            <div class="metric"><span>套餐总量</span><strong id="quotaText">-</strong></div>
+            <div class="metric"><span>已使用</span><strong id="usedText">-</strong></div>
+            <div class="metric"><span>剩余流量</span><strong id="remainText">-</strong></div>
+            <div class="metric"><span>到期时间</span><strong id="expireText">-</strong></div>
           </div>
-          <label class="wide">Clash 订阅链接<input id="subscriptionUrl" readonly></label>
+          <div class="subscription-block">
+            <div><h2>Clash 订阅链接</h2><p>请勿与他人分享；账号停用后链接将无法继续使用。</p></div>
+            <label class="wide"><span class="sr-only">Clash 订阅链接</span><input id="subscriptionUrl" readonly></label>
+          </div>
         </section>
 
-        <section id="adminView" class="view hidden">
-          <div class="toolbar">
-            <div>
-              <h1>用户审核</h1>
-              <p>审批后用户会获得套餐总量、到期时间和专属订阅链接。</p>
-            </div>
-            <button id="syncUsageBtn">同步 X-UI 用量</button>
+        <section id="adminView" class="view admin-workspace hidden">
+          <div class="page-heading">
+            <div><p class="eyebrow">USER OPERATIONS</p><h1>用户管理</h1><p>审核申请、检查开通状态并管理账号生命周期。</p></div>
+            <button id="syncUsageBtn" type="button">同步 X-UI 用量</button>
           </div>
-          <div class="table-wrap">
+          <div class="table-wrap desktop-users">
             <table>
-              <thead><tr><th>邮箱</th><th>状态</th><th>套餐</th><th>用量</th><th>到期</th><th>开通</th><th>操作</th></tr></thead>
+              <thead><tr><th>用户</th><th>状态</th><th>套餐</th><th>用量</th><th>到期</th><th>开通</th><th>操作</th></tr></thead>
               <tbody id="userRows"></tbody>
             </table>
           </div>
-
+          <div id="userCardList" class="user-card-list"></div>
           <form id="usageForm" class="panel compact-form">
-            <h2>手动录入用量</h2>
+            <div class="form-intro"><h2>手动录入用量</h2><p>仅用于需要人工校正的静态节点。</p></div>
             <label>用户<select name="user_id" id="usageUser"></select></label>
             <label>节点<select name="node_id" id="usageNode"></select></label>
             <label>上传 GB<input name="upload_gb" type="number" min="0" step="0.01" value="0"></label>
@@ -93,57 +134,46 @@
           </form>
         </section>
 
-        <section id="nodesView" class="view hidden">
+        <section id="nodesView" class="view admin-workspace hidden">
+          <div class="page-heading"><div><p class="eyebrow">NODE CONTROL</p><h1>节点管理</h1><p>配置托管节点与 X-UI 入站。</p></div></div>
           <div class="split">
             <form id="nodeForm" class="panel">
-              <h2>节点</h2>
+              <h2>节点配置</h2>
               <input name="id" type="hidden">
-              <label>名称<input name="name" required placeholder="美国 01"></label>
-              <label>节点模式<select name="mode">
-                <option value="managed">托管：注册后自动写入 X-UI 客户端</option>
-                <option value="static">静态：只聚合固定分享链接</option>
-              </select></label>
+              <label>名称<input name="name" required placeholder="韩国 01"></label>
+              <label>节点模式<select name="mode"><option value="managed">托管：自动写入 X-UI 客户端</option><option value="static">静态：聚合固定分享链接</option></select></label>
               <label>所属面板<select name="panel_id" id="nodePanel"><option value="">不绑定</option></select></label>
               <label>X-UI 入站 ID<input name="inbound_id" type="number" min="0" step="1" value="0" list="inboundOptions"></label>
               <datalist id="inboundOptions"></datalist>
               <button type="button" class="ghost" data-fetch-inbounds="selected">拉取所选面板入站</button>
               <label>倍率<input name="rate" type="number" min="0" step="0.1" value="1"></label>
-              <label>标签<input name="tags" placeholder="us,premium"></label>
+              <label>标签<input name="tags" placeholder="kr,premium"></label>
               <label>分享链接<textarea name="source_url" rows="6" required placeholder="vless://..."></textarea></label>
               <label class="check"><input name="enabled" type="checkbox" checked>启用</label>
               <button type="submit">保存节点</button>
             </form>
-            <div class="list-panel">
-              <h2>节点列表</h2>
-              <div id="nodeList" class="row-list"></div>
-            </div>
+            <div class="list-panel"><div class="list-heading"><h2>节点列表</h2><span>实时配置</span></div><div id="nodeList" class="row-list"></div></div>
           </div>
         </section>
 
-        <section id="settingsView" class="view hidden">
+        <section id="settingsView" class="view admin-workspace hidden">
+          <div class="page-heading"><div><p class="eyebrow">SYSTEM SETTINGS</p><h1>系统配置</h1><p>管理套餐、面板和全局订阅设置。</p></div></div>
           <div class="split">
             <form id="planForm" class="panel">
-              <div class="form-heading">
-                <h2 id="planFormTitle">新建套餐</h2>
-                <button id="newPlanBtn" type="button" class="ghost">新建</button>
-              </div>
+              <div class="form-heading"><h2 id="planFormTitle">新建套餐</h2><button id="newPlanBtn" type="button" class="ghost">新建</button></div>
               <input name="id" type="hidden">
-              <label>名称<input name="name" required placeholder="1000G 月付"></label>
+              <label>名称<input name="name" required placeholder="300G 月付"></label>
               <label>总量 GB<input name="quota_gb" type="number" min="0" step="1" required></label>
               <label>有效天数<input name="duration_days" type="number" min="1" step="1" required></label>
-              <label>允许标签<input name="allowed_tags" placeholder="us,jp,premium"></label>
+              <label>允许标签<input name="allowed_tags" placeholder="kr,premium"></label>
               <label class="check"><input name="require_approval" type="checkbox" checked>需要审核</label>
               <label class="check"><input name="enabled" type="checkbox" checked>启用</label>
               <button id="planSubmitBtn" type="submit">添加套餐</button>
             </form>
-
             <form id="panelForm" class="panel">
-              <div class="form-heading">
-                <h2 id="panelFormTitle">新建 X-UI 面板</h2>
-                <button id="newPanelBtn" type="button" class="ghost">新建</button>
-              </div>
+              <div class="form-heading"><h2 id="panelFormTitle">新建 X-UI 面板</h2><button id="newPanelBtn" type="button" class="ghost">新建</button></div>
               <input name="id" type="hidden">
-              <label>名称<input name="name" required placeholder="RackNerd 美国"></label>
+              <label>名称<input name="name" required placeholder="韩国主面板"></label>
               <label>面板地址<input name="base_url" required placeholder="https://domain:port/path/"></label>
               <label>账号<input name="username" autocomplete="off"></label>
               <label>密码<input name="password" type="password" autocomplete="new-password" placeholder="新建时填写；编辑时留空保留已保存密码"></label>
@@ -154,24 +184,60 @@
               <button id="panelSubmitBtn" type="submit">添加面板</button>
             </form>
           </div>
-          <form id="settingsForm" class="panel compact-form">
-            <h2>全局设置</h2>
-            <label>订阅显示名称<input name="subscription_title" maxlength="80" placeholder="良心云"></label>
-            <label>自动同步间隔 秒<input name="sync_interval_seconds" type="number" min="60" max="86400" step="60" value="300"></label>
+          <form id="settingsForm" class="panel compact-form settings-form">
+            <div class="form-intro"><h2>全局设置</h2><p>控制订阅显示与自动同步。</p></div>
+            <label>订阅显示名称<input name="subscription_title" maxlength="80" placeholder="黑心云"></label>
+            <label>自动同步间隔（秒）<input name="sync_interval_seconds" type="number" min="60" max="86400" step="60" value="300"></label>
             <button type="submit">保存设置</button>
           </form>
-          <div class="split">
-            <div class="list-panel">
-              <h2>套餐列表</h2>
-              <div id="planList" class="row-list"></div>
-            </div>
-            <div class="list-panel">
-              <h2>面板列表</h2>
-              <div id="panelList" class="row-list"></div>
-            </div>
+          <div class="split lists-split">
+            <div class="list-panel"><div class="list-heading"><h2>套餐列表</h2><span>商城实时读取</span></div><div id="planList" class="row-list"></div></div>
+            <div class="list-panel"><div class="list-heading"><h2>面板列表</h2><span>凭据仅本机保存</span></div><div id="panelList" class="row-list"></div></div>
           </div>
         </section>
       </main>
+    </div>
+
+    <nav id="mobileNav" class="mobile-nav" aria-label="移动端导航">
+      <button type="button" class="active" data-view="storefront"><span>商城</span></button>
+      <button type="button" class="user-only hidden" data-view="account"><span>订阅</span></button>
+      <button type="button" class="admin-only hidden" data-view="admin"><span>用户</span></button>
+      <button type="button" class="admin-only hidden" data-view="nodes"><span>节点</span></button>
+      <button type="button" class="admin-only hidden" data-view="settings"><span>配置</span></button>
+    </nav>
+
+    <dialog id="authDialog" class="auth-dialog" aria-labelledby="authTitle">
+      <div class="auth-shell">
+        <button type="button" class="dialog-close" data-close-auth aria-label="关闭">×</button>
+        <div class="auth-brand">
+          <p class="eyebrow">WELCOME TO</p>
+          <h2 id="authTitle">黑心云账号</h2>
+          <p id="authContext">登录后继续管理你的订阅。</p>
+        </div>
+        <div class="auth-tabs" role="tablist" aria-label="账号操作">
+          <button type="button" class="active" role="tab" aria-selected="true" data-auth-tab="login">登录</button>
+          <button type="button" role="tab" aria-selected="false" data-auth-tab="register">注册</button>
+        </div>
+        <form id="loginForm" class="auth-form" data-auth-panel="login">
+          <label>邮箱<input name="email" type="email" autocomplete="email" placeholder="name@example.com" required></label>
+          <label>密码<span class="password-field"><input name="password" type="password" autocomplete="current-password" required><button type="button" class="password-toggle" data-toggle-password>显示</button></span></label>
+          <button type="submit" class="wide-button">登录并继续</button>
+        </form>
+        <form id="registerForm" class="auth-form hidden" data-auth-panel="register">
+          <label>邮箱<input name="email" type="email" autocomplete="email" placeholder="name@example.com" required></label>
+          <label>密码<span class="password-field"><input name="password" type="password" autocomplete="new-password" minlength="6" required><button type="button" class="password-toggle" data-toggle-password>显示</button></span></label>
+          <p class="form-note">至少 6 位字符。注册成功后会自动登录。</p>
+          <button type="submit" class="wide-button">创建账号并继续</button>
+        </form>
+      </div>
+    </dialog>
+
+    <div id="slowLoader" class="slow-loader hidden" role="status" aria-live="polite">
+      <div class="loader-card">
+        <span class="loader-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <strong id="loaderAction">正在处理</strong>
+        <span id="loaderElapsed">已等待 1 秒</span>
+      </div>
     </div>
     <script src="/app.js"></script>
   </body>

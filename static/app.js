@@ -6,21 +6,62 @@ const state = {
   nodes: [],
   settings: {},
   inbounds: [],
-  view: "account",
+  view: "storefront",
+  pendingPlanId: null,
+  loadingCount: 0,
+  loadingStartedAt: 0,
+  loadingTimer: null,
+  elapsedTimer: null,
+  authReturnFocus: null,
 };
 
 const $ = (selector) => document.querySelector(selector);
-const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+
+function beginLoading(action = "正在处理") {
+  if (state.loadingCount === 0) {
+    state.loadingStartedAt = Date.now();
+    state.loadingTimer = window.setTimeout(() => {
+      if (!state.loadingCount) return;
+      $("#loaderAction").textContent = action;
+      updateElapsedTime();
+      $("#slowLoader").classList.remove("hidden");
+      state.elapsedTimer = window.setInterval(updateElapsedTime, 1000);
+    }, 600);
+  }
+  state.loadingCount += 1;
+}
+
+function updateElapsedTime() {
+  const elapsed = Math.max(1, Math.floor((Date.now() - state.loadingStartedAt) / 1000));
+  $("#loaderElapsed").textContent = `已等待 ${elapsed} 秒`;
+}
+
+function endLoading() {
+  state.loadingCount = Math.max(0, state.loadingCount - 1);
+  if (state.loadingCount) return;
+  window.clearTimeout(state.loadingTimer);
+  window.clearInterval(state.elapsedTimer);
+  state.loadingTimer = null;
+  state.elapsedTimer = null;
+  $("#slowLoader").classList.add("hidden");
+}
 
 async function api(path, options = {}) {
-  const res = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    credentials: "same-origin",
-    ...options,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `请求失败: ${res.status}`);
-  return data;
+  const { loadingLabel = "正在处理", ...fetchOptions } = options;
+  beginLoading(loadingLabel);
+  try {
+    const res = await fetch(path, {
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      ...fetchOptions,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `请求失败: ${res.status}`);
+    return data;
+  } finally {
+    endLoading();
+  }
 }
 
 function formData(form) {
@@ -50,7 +91,16 @@ function quotaGb(plan) {
 
 function toDate(seconds) {
   if (!seconds) return "-";
-  return new Date(Number(seconds) * 1000).toLocaleDateString();
+  return new Date(Number(seconds) * 1000).toLocaleDateString("zh-CN");
+}
+
+function statusText(status) {
+  return {
+    unsubscribed: "未申请",
+    pending: "待审核",
+    active: "已开通",
+    disabled: "已停用",
+  }[status] || status || "未知";
 }
 
 function provisioningSummary(summary) {
@@ -68,7 +118,7 @@ function provisioningSummary(summary) {
 function provisioningErrorSummary(errors) {
   if (!errors?.length) return "";
   return errors
-    .map((item) => `${item.panel_name || `面板 ${item.panel_id}`} / 入站 ${item.inbound_id}: ${item.error || "开通失败"}`)
+    .map((item) => `${item.panel_name || `面板 ${item.panel_id}`} / 入站 ${item.inbound_id}: ${item.error || "操作失败"}`)
     .join("；");
 }
 
@@ -87,6 +137,7 @@ function showNotice(message) {
 
 async function copyTextFromInput(input) {
   const value = input.value || "";
+  if (!value) throw new Error("当前还没有可复制的订阅链接");
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(value);
     return;
@@ -114,7 +165,7 @@ async function withSubmitState(event, action) {
   form.dataset.submitting = "true";
   if (button) {
     button.disabled = true;
-    button.textContent = "处理中...";
+    button.textContent = "处理中…";
   }
   try {
     await action(form);
@@ -130,21 +181,29 @@ async function withSubmitState(event, action) {
 }
 
 function setView(view) {
+  if (view === "account" && !state.me) {
+    openAuth("login");
+    return;
+  }
+  if (["admin", "nodes", "settings"].includes(view) && state.me?.role !== "admin") {
+    view = "storefront";
+  }
   state.view = view;
-  $$(".nav-item").forEach((btn) => btn.classList.toggle("active", btn.dataset.view === view));
+  $$('[data-view]').forEach((btn) => btn.classList.toggle("active", btn.dataset.view === view));
   $$(".view").forEach((node) => node.classList.add("hidden"));
   const target = $(`#${view}View`);
   if (target) target.classList.remove("hidden");
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 async function refreshPublic() {
-  const data = await api("/api/plans");
+  const data = await api("/api/plans", { loadingLabel: "正在读取套餐" });
   state.plans = data.plans || [];
-  renderPlanOptions();
+  renderPlanCatalog();
 }
 
 async function refreshMe() {
-  const data = await api("/api/me");
+  const data = await api("/api/me", { loadingLabel: "正在读取账号" });
   state.me = data.user;
   renderAuth();
   if (state.me?.role === "admin") await refreshAdmin();
@@ -152,11 +211,11 @@ async function refreshMe() {
 
 async function refreshAdmin() {
   const [users, plans, panels, nodes, settings] = await Promise.all([
-    api("/api/admin/users"),
-    api("/api/admin/plans"),
-    api("/api/admin/panels"),
-    api("/api/admin/nodes"),
-    api("/api/admin/settings"),
+    api("/api/admin/users", { loadingLabel: "正在读取后台数据" }),
+    api("/api/admin/plans", { loadingLabel: "正在读取后台数据" }),
+    api("/api/admin/panels", { loadingLabel: "正在读取后台数据" }),
+    api("/api/admin/nodes", { loadingLabel: "正在读取后台数据" }),
+    api("/api/admin/settings", { loadingLabel: "正在读取后台数据" }),
   ]);
   state.users = users.users || [];
   state.plans = plans.plans || state.plans;
@@ -164,31 +223,75 @@ async function refreshAdmin() {
   state.nodes = nodes.nodes || [];
   state.settings = settings.settings || {};
   renderAdmin();
+  renderPlanCatalog();
 }
 
 function renderAuth() {
   const loggedIn = Boolean(state.me);
-  $("#authPanel").classList.toggle("hidden", loggedIn);
-  $("#accountView").classList.toggle("hidden", !loggedIn || state.view !== "account");
-  $("#sessionEmail").textContent = loggedIn ? state.me.email : "未登录";
+  const isAdmin = state.me?.role === "admin";
+  $("#sessionEmail").textContent = loggedIn ? state.me.email : "游客";
+  $("#loginBtn").classList.toggle("hidden", loggedIn);
+  $("#registerBtn").classList.toggle("hidden", loggedIn);
+  $("#refreshBtn").classList.toggle("hidden", !loggedIn);
   $("#logoutBtn").classList.toggle("hidden", !loggedIn);
-  $$(".admin-only").forEach((node) => node.classList.toggle("hidden", state.me?.role !== "admin"));
-  if (!loggedIn) return;
+  $$(".admin-only").forEach((node) => node.classList.toggle("hidden", !isAdmin));
+  $$(".user-only").forEach((node) => node.classList.toggle("hidden", !loggedIn || isAdmin));
+  const mobileAccount = $("#mobileAccountBtn");
+  mobileAccount.textContent = loggedIn ? (isAdmin ? "后台" : "订阅") : "登录";
+  if (!loggedIn) {
+    renderPlanCatalog();
+    return;
+  }
 
-  const status = state.me.status;
-  $("#accountStatus").textContent = status === "active" ? "账户已开通，可以导入 Clash 使用。" : "账户等待管理员审核。";
+  const statusMessages = {
+    unsubscribed: "尚未申请套餐，可返回商城选择一个实时套餐。",
+    pending: "申请已提交，正在等待管理员审核。",
+    active: "账号已开通，可复制订阅链接导入 Clash 使用。",
+    disabled: "账号已停用，如有疑问请联系管理员。",
+  };
+  $("#accountStatus").textContent = statusMessages[state.me.status] || "账号状态未知。";
   $("#quotaText").textContent = formatBytes(state.me.quota_bytes);
   $("#usedText").textContent = formatBytes(state.me.used_bytes);
   $("#remainText").textContent = formatBytes(state.me.remaining_bytes);
   $("#expireText").textContent = toDate(state.me.expire_at);
   $("#subscriptionUrl").value = state.me.subscription_url || "";
+  $("#copySubBtn").disabled = state.me.status !== "active" || !state.me.subscription_url;
+  renderPlanCatalog();
 }
 
-function renderPlanOptions() {
-  const select = $("#registerPlan");
-  select.innerHTML = state.plans
+function planAction(plan) {
+  if (!state.me) return { label: "立即申请", disabled: false };
+  if (state.me.role === "admin") return { label: "管理员不可申请", disabled: true };
+  if (state.me.status === "unsubscribed") return { label: "立即申请", disabled: false };
+  if (state.me.status === "pending") return { label: "申请审核中", disabled: true };
+  if (state.me.status === "active") return { label: "已有生效套餐", disabled: true };
+  return { label: "账号已停用", disabled: true };
+}
+
+function renderPlanCatalog() {
+  const catalog = $("#planCatalog");
+  if (!catalog) return;
+  if (!state.plans.length) {
+    catalog.innerHTML = '<div class="empty-state">当前暂无可申请套餐，请稍后再来。</div>';
+    return;
+  }
+  catalog.innerHTML = state.plans
     .filter((plan) => plan.enabled !== false)
-    .map((plan) => `<option value="${plan.id}">${escapeHtml(plan.name)} - ${formatBytes(plan.quota_bytes)}</option>`)
+    .map((plan, index) => {
+      const action = planAction(plan);
+      return `<article class="plan-card">
+        <div>
+          <span class="plan-index">PLAN ${String(index + 1).padStart(2, "0")}</span>
+          <h3>${escapeHtml(plan.name)}</h3>
+          <p class="plan-quota">${escapeHtml(formatBytes(plan.quota_bytes))}</p>
+          <div class="plan-meta">
+            <span>${plan.duration_days} 天有效</span>
+            <span>${plan.require_approval ? "人工审核" : "自动开通"}</span>
+          </div>
+        </div>
+        <button type="button" data-apply-plan="${plan.id}" ${action.disabled ? "disabled" : ""}>${action.label}</button>
+      </article>`;
+    })
     .join("");
 }
 
@@ -201,38 +304,53 @@ function renderAdmin() {
   renderSettings();
 }
 
+function userActionButtons(user) {
+  if (user.role === "admin") return '<span class="meta">系统管理员</span>';
+  const plannedActions = user.plan_id
+    ? `${user.status === "pending" ? `<button data-approve="${user.id}">通过</button>` : ""}
+       <button class="ghost" data-retry-provision="${user.id}">重试开通</button>
+       <button class="ghost" data-reconcile-user="${user.id}">对账</button>`
+    : "";
+  const lifecycle = user.status === "disabled"
+    ? `<button data-status="${user.id}" data-value="active">启用</button>
+       <button class="danger" data-delete-user="${user.id}" data-user-email="${escapeHtml(user.email)}">永久删除</button>`
+    : `<button class="danger" data-status="${user.id}" data-value="disabled">停用</button>`;
+  return plannedActions + lifecycle;
+}
+
 function renderUsers() {
-  $("#userRows").innerHTML = state.users
-    .map((user) => {
-      const plan = state.plans.find((item) => item.id === user.plan_id);
-      const provisionText = provisioningSummary(user.provisioning);
-      const errorText = provisioningErrorSummary(user.provisioning_errors);
-      return `<tr>
-        <td>${escapeHtml(user.email)}</td>
-        <td><span class="status ${user.status}">${user.status}</span></td>
-        <td>${escapeHtml(plan?.name || "-")}</td>
-        <td>${formatBytes(user.used_bytes)} / ${formatBytes(user.quota_bytes)}</td>
-        <td>${toDate(user.expire_at)}</td>
-        <td>
-          <div class="meta">${escapeHtml(provisionText || "-")}</div>
-          ${errorText ? `<div class="error-text">${escapeHtml(errorText)}</div>` : ""}
-        </td>
-        <td><div class="actions">
-          ${user.status === "pending" ? `<button data-approve="${user.id}">通过</button>` : ""}
-          <button class="ghost" data-retry-provision="${user.id}">重试开通</button>
-          <button class="ghost" data-reconcile-user="${user.id}">对账</button>
-          ${user.status !== "disabled" ? `<button class="danger" data-status="${user.id}" data-value="disabled">停用</button>` : `<button data-status="${user.id}" data-value="active">启用</button>`}
-        </div></td>
-      </tr>`;
-    })
-    .join("");
+  const rows = state.users.map((user) => {
+    const plan = state.plans.find((item) => item.id === user.plan_id);
+    const provisionText = provisioningSummary(user.provisioning);
+    const errorText = provisioningErrorSummary(user.provisioning_errors);
+    return `<tr>
+      <td><strong>${escapeHtml(user.email)}</strong></td>
+      <td><span class="status ${user.status}">${statusText(user.status)}</span></td>
+      <td>${escapeHtml(plan?.name || "未选择")}</td>
+      <td>${formatBytes(user.used_bytes)} / ${formatBytes(user.quota_bytes)}</td>
+      <td>${toDate(user.expire_at)}</td>
+      <td><div class="meta">${escapeHtml(provisionText || "-")}</div>${errorText ? `<div class="error-text">${escapeHtml(errorText)}</div>` : ""}</td>
+      <td><div class="actions">${userActionButtons(user)}</div></td>
+    </tr>`;
+  }).join("");
+  $("#userRows").innerHTML = rows;
+  $("#userCardList").innerHTML = state.users.map((user) => {
+    const plan = state.plans.find((item) => item.id === user.plan_id);
+    const errorText = provisioningErrorSummary(user.provisioning_errors);
+    return `<article class="user-card">
+      <header><h3>${escapeHtml(user.email)}</h3><span class="status ${user.status}">${statusText(user.status)}</span></header>
+      <div class="user-card-meta"><span>${escapeHtml(plan?.name || "未选择套餐")}</span><span>${formatBytes(user.used_bytes)} / ${formatBytes(user.quota_bytes)}</span></div>
+      ${errorText ? `<div class="error-text">${escapeHtml(errorText)}</div>` : ""}
+      <div class="actions">${userActionButtons(user)}</div>
+    </article>`;
+  }).join("");
 }
 
 function renderPlans() {
   $("#planList").innerHTML = state.plans
     .map((plan) => `<article class="row-card">
       <header><strong>${escapeHtml(plan.name)}</strong><span class="row-actions"><button data-edit-plan="${plan.id}" class="ghost">编辑</button><button data-delete-plan="${plan.id}" class="danger">删除</button></span></header>
-      <span class="meta">${formatBytes(plan.quota_bytes)} / ${plan.duration_days} 天 / 标签: ${escapeHtml((plan.allowed_tags || []).join(",") || "全部")}</span>
+      <span class="meta">${formatBytes(plan.quota_bytes)} / ${plan.duration_days} 天 / 标签：${escapeHtml((plan.allowed_tags || []).join(",") || "全部")}</span>
     </article>`)
     .join("");
 }
@@ -244,14 +362,14 @@ function renderPanels() {
       <span class="meta">${escapeHtml(panel.base_url)}${panel.has_password ? " / 已保存密码" : " / 未保存密码"}</span>
     </article>`)
     .join("");
-  $("#nodePanel").innerHTML = `<option value="">不绑定</option>` + state.panels.map((panel) => `<option value="${panel.id}">${escapeHtml(panel.name)}</option>`).join("");
+  $("#nodePanel").innerHTML = '<option value="">不绑定</option>' + state.panels.map((panel) => `<option value="${panel.id}">${escapeHtml(panel.name)}</option>`).join("");
 }
 
 function renderNodes() {
   $("#nodeList").innerHTML = state.nodes
     .map((node) => `<article class="row-card">
       <header><strong>${escapeHtml(node.name)}</strong><span class="row-actions"><button data-edit-node="${node.id}" class="ghost">编辑</button><button data-delete-node="${node.id}" class="danger">删除</button></span></header>
-      <span class="meta">${node.mode === "managed" ? "托管" : "静态"} / 入站 ${node.inbound_id || 0} / 倍率 ${node.rate} / 标签: ${escapeHtml((node.tags || []).join(",") || "无")}</span>
+      <span class="meta">${node.mode === "managed" ? "托管" : "静态"} / 入站 ${node.inbound_id || 0} / 倍率 ${node.rate} / 标签：${escapeHtml((node.tags || []).join(",") || "无")}</span>
       <span class="meta">${escapeHtml(String(node.source_url || "").slice(0, 150))}</span>
     </article>`)
     .join("");
@@ -272,23 +390,18 @@ function renderInboundOptions(inbounds) {
 }
 
 function renderUsageOptions() {
-  $("#usageUser").innerHTML = state.users.map((user) => `<option value="${user.id}">${escapeHtml(user.email)}</option>`).join("");
+  $("#usageUser").innerHTML = state.users.filter((user) => user.role !== "admin").map((user) => `<option value="${user.id}">${escapeHtml(user.email)}</option>`).join("");
   $("#usageNode").innerHTML = state.nodes.map((node) => `<option value="${node.id}">${escapeHtml(node.name)}</option>`).join("");
 }
 
 function fillForm(form, data) {
-  Object.entries(data).forEach(([key, value]) => {
+  Object.entries(data || {}).forEach(([key, value]) => {
     const input = form.elements[key];
     if (!input) return;
-    if (input.type === "checkbox") {
-      input.checked = Boolean(value);
-    } else if (Array.isArray(value)) {
-      input.value = value.join(",");
-    } else if (key === "quota_bytes") {
-      input.value = Number(value || 0) / 1024 ** 3;
-    } else {
-      input.value = value ?? "";
-    }
+    if (input.type === "checkbox") input.checked = Boolean(value);
+    else if (Array.isArray(value)) input.value = value.join(",");
+    else if (key === "quota_bytes") input.value = Number(value || 0) / 1024 ** 3;
+    else input.value = value ?? "";
   });
 }
 
@@ -314,7 +427,7 @@ function resetPlanForm() {
 
 function resetPanelForm() {
   resetFormMode($("#panelForm"), $("#panelFormTitle"), $("#panelSubmitBtn"), " X-UI 面板", "添加面板");
-  $("#panelPasswordHelp").textContent = "新建面板时请填写密码；编辑已有面板时，留空保留已保存密码。";
+  $("#panelPasswordHelp").textContent = "新建面板时请填写密码；编辑已有面板时留空保留已保存密码。";
 }
 
 function resetNodeForm() {
@@ -330,11 +443,10 @@ async function fetchInboundsForPanel(panelId) {
   const data = await api("/api/admin/panels/inbounds", {
     method: "POST",
     body: JSON.stringify({ panel_id: panelId }),
+    loadingLabel: "正在拉取入站",
   });
   renderInboundOptions(data.inbounds || []);
-  if (state.inbounds.length === 1) {
-    $("#nodeForm").elements.inbound_id.value = state.inbounds[0].id;
-  }
+  if (state.inbounds.length === 1) $("#nodeForm").elements.inbound_id.value = state.inbounds[0].id;
   return state.inbounds.length;
 }
 
@@ -346,8 +458,196 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+function showAuthTab(tab) {
+  $$('[data-auth-tab]').forEach((button) => {
+    const active = button.dataset.authTab === tab;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  $$('[data-auth-panel]').forEach((panel) => panel.classList.toggle("hidden", panel.dataset.authPanel !== tab));
+  window.setTimeout(() => $(`[data-auth-panel="${tab}"] input`)?.focus(), 0);
+}
+
+function openAuth(tab = "login") {
+  if (state.me) {
+    setView(state.me.role === "admin" ? "admin" : "account");
+    return;
+  }
+  state.authReturnFocus = document.activeElement;
+  showAuthTab(tab);
+  $("#authContext").textContent = state.pendingPlanId ? "登录或注册后，将自动继续申请所选套餐。" : "登录后继续管理你的订阅。";
+  const dialog = $("#authDialog");
+  if (!dialog.open) dialog.showModal();
+}
+
+function closeAuth(discardPending = false) {
+  const dialog = $("#authDialog");
+  if (dialog.open) dialog.close();
+  if (discardPending) state.pendingPlanId = null;
+  state.authReturnFocus?.focus?.();
+  state.authReturnFocus = null;
+}
+
+async function requestApplication(planId) {
+  state.pendingPlanId = Number(planId);
+  if (!state.me) {
+    openAuth("login");
+    return;
+  }
+  await submitApplication();
+}
+
+async function submitApplication() {
+  if (!state.pendingPlanId) return;
+  const data = await api("/api/applications", {
+    method: "POST",
+    body: JSON.stringify({ plan_id: state.pendingPlanId }),
+    loadingLabel: "正在提交套餐申请",
+  });
+  state.pendingPlanId = null;
+  state.me = data.user;
+  renderAuth();
+  closeAuth(false);
+  setView("account");
+  showNotice(state.me.status === "active" ? "套餐已自动开通" : "申请已提交，等待管理员审核");
+}
+
+async function finishAuthentication(user) {
+  state.me = user;
+  renderAuth();
+  if (state.me?.role === "admin") await refreshAdmin();
+  closeAuth(false);
+  if (state.pendingPlanId && state.me?.role === "user") await submitApplication();
+  else setView(state.me?.role === "admin" ? "admin" : "account");
+}
+
+async function handleDocumentClick(event) {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target) return;
+  const viewButton = target.closest("[data-view]");
+  if (viewButton) {
+    setView(viewButton.dataset.view);
+    return;
+  }
+  const authButton = target.closest("[data-open-auth]");
+  if (authButton) {
+    openAuth(authButton.dataset.openAuth);
+    return;
+  }
+  if (target.closest("[data-close-auth]")) {
+    closeAuth(true);
+    return;
+  }
+  const authTab = target.closest("[data-auth-tab]");
+  if (authTab) {
+    showAuthTab(authTab.dataset.authTab);
+    return;
+  }
+  const passwordToggle = target.closest("[data-toggle-password]");
+  if (passwordToggle) {
+    const input = passwordToggle.parentElement.querySelector("input");
+    input.type = input.type === "password" ? "text" : "password";
+    passwordToggle.textContent = input.type === "password" ? "显示" : "隐藏";
+    return;
+  }
+  if (target.closest("[data-scroll-plans]")) {
+    $("#plansSection").scrollIntoView({ behavior: "smooth" });
+    return;
+  }
+  const applyButton = target.closest("[data-apply-plan]");
+  if (applyButton) {
+    await requestApplication(applyButton.dataset.applyPlan);
+    return;
+  }
+
+  const action = target.closest("button");
+  if (!action) return;
+  if (action.dataset.approve) {
+    const result = await api("/api/admin/users/approve", { method: "POST", body: JSON.stringify({ user_id: action.dataset.approve }), loadingLabel: "正在审核用户" });
+    await refreshAdmin();
+    showNotice(provisioningNotice("用户已通过", result.provisioning, result.errors));
+  }
+  if (action.dataset.retryProvision) {
+    const result = await api("/api/admin/users/provision/retry", { method: "POST", body: JSON.stringify({ user_id: action.dataset.retryProvision }), loadingLabel: "正在重试开通" });
+    await refreshAdmin();
+    showNotice(provisioningNotice("重试完成", result.provisioning, result.errors));
+  }
+  if (action.dataset.reconcileUser) {
+    const result = await api("/api/admin/users/reconcile", { method: "POST", body: JSON.stringify({ user_id: action.dataset.reconcileUser, apply: true }), loadingLabel: "正在对账" });
+    await refreshAdmin();
+    showNotice(provisioningNotice("对账完成", result.reconcile, result.errors));
+  }
+  if (action.dataset.status) {
+    await api("/api/admin/users/status", { method: "POST", body: JSON.stringify({ user_id: action.dataset.status, status: action.dataset.value }), loadingLabel: "正在更新用户状态" });
+    await refreshAdmin();
+    showNotice("用户状态已更新");
+  }
+  if (action.dataset.deleteUser) {
+    const email = action.dataset.userEmail || "该用户";
+    if (!window.confirm(`确定永久删除 ${email} 吗？系统会先清理全部 X-UI 客户端，此操作不可恢复。`)) return;
+    await api("/api/admin/users/delete", { method: "POST", body: JSON.stringify({ user_id: action.dataset.deleteUser }), loadingLabel: "正在清理用户与节点" });
+    await refreshAdmin();
+    showNotice("用户及其 X-UI 客户端已删除");
+  }
+  if (action.dataset.deletePlan) {
+    if (!window.confirm("确定删除这个套餐吗？")) return;
+    await api("/api/admin/plans/delete", { method: "POST", body: JSON.stringify({ id: action.dataset.deletePlan }) });
+    await refreshAdmin();
+    showNotice("套餐已删除");
+  }
+  if (action.dataset.deletePanel) {
+    if (!window.confirm("确定删除这个面板吗？")) return;
+    await api("/api/admin/panels/delete", { method: "POST", body: JSON.stringify({ id: action.dataset.deletePanel }) });
+    await refreshAdmin();
+    showNotice("面板已删除");
+  }
+  if (action.dataset.deleteNode) {
+    if (!window.confirm("确定删除这个节点吗？")) return;
+    await api("/api/admin/nodes/delete", { method: "POST", body: JSON.stringify({ id: action.dataset.deleteNode }) });
+    await refreshAdmin();
+    showNotice("节点已删除");
+  }
+  if (action.dataset.testPanel) {
+    const result = await api("/api/admin/panels/test", { method: "POST", body: JSON.stringify({ panel_id: action.dataset.testPanel }), loadingLabel: "正在测试面板" });
+    showNotice(`面板连接正常：${result.inbound_count || 0} 个入站`);
+  }
+  if (action.dataset.fetchInbounds) {
+    const panelId = action.dataset.fetchInbounds === "selected" ? $("#nodePanel").value : action.dataset.fetchInbounds;
+    if (action.dataset.fetchInbounds !== "selected") {
+      $("#nodePanel").value = panelId;
+      setView("nodes");
+    }
+    const count = await fetchInboundsForPanel(panelId);
+    showNotice(`已拉取 ${count} 个入站`);
+  }
+  if (action.dataset.editPlan) {
+    const plan = state.plans.find((item) => String(item.id) === action.dataset.editPlan);
+    setFormMode($("#planForm"), $("#planFormTitle"), $("#planSubmitBtn"), "套餐", { ...plan, quota_gb: quotaGb(plan), allowed_tags: plan.allowed_tags || [] });
+    setView("settings");
+  }
+  if (action.dataset.editPanel) {
+    const panel = state.panels.find((item) => String(item.id) === action.dataset.editPanel);
+    setFormMode($("#panelForm"), $("#panelFormTitle"), $("#panelSubmitBtn"), " X-UI 面板", panel);
+    $("#panelPasswordHelp").textContent = panel.has_password ? "已保存密码；留空会继续使用原密码，填写新密码才会替换。" : "当前没有保存密码，请填写新密码。";
+    setView("settings");
+  }
+  if (action.dataset.editNode) {
+    fillForm($("#nodeForm"), state.nodes.find((item) => String(item.id) === action.dataset.editNode));
+    setView("nodes");
+  }
+}
+
 function bindEvents() {
-  $$(".nav-item").forEach((btn) => btn.addEventListener("click", () => setView(btn.dataset.view)));
+  document.addEventListener("click", (event) => {
+    handleDocumentClick(event).catch((error) => showNotice(error?.message || "操作失败"));
+  });
+  $("#authDialog").addEventListener("cancel", () => {
+    state.pendingPlanId = null;
+  });
+  $("#mobileAccountBtn").addEventListener("click", () => {
+    if (state.me) setView(state.me.role === "admin" ? "admin" : "account");
+    else openAuth("login");
+  });
   $("#refreshBtn").addEventListener("click", async () => {
     await refreshPublic();
     await refreshMe();
@@ -359,15 +659,17 @@ function bindEvents() {
     state.users = [];
     state.panels = [];
     state.nodes = [];
+    state.pendingPlanId = null;
     $("#loginForm").reset();
-    setView("account");
+    $("#registerForm").reset();
+    setView("storefront");
     renderAuth();
     showNotice("已退出登录");
   });
   $("#newPlanBtn").addEventListener("click", resetPlanForm);
   $("#newPanelBtn").addEventListener("click", resetPanelForm);
   $("#syncUsageBtn").addEventListener("click", async () => {
-    const result = await api("/api/admin/sync-usage", { method: "POST", body: "{}" });
+    const result = await api("/api/admin/sync-usage", { method: "POST", body: "{}", loadingLabel: "正在同步 X-UI 用量" });
     await refreshAdmin();
     showNotice(`同步完成：更新 ${result.synced || 0} 条，停用 ${result.disabled || 0} 个客户端${result.errors?.length ? "，有错误请检查面板配置" : ""}`);
   });
@@ -377,17 +679,16 @@ function bindEvents() {
   });
 
   $("#loginForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
-    const data = await api("/api/login", { method: "POST", body: JSON.stringify(formData(form)) });
-    state.me = data.user;
-    setView("account");
-    await refreshMe();
+    const data = await api("/api/login", { method: "POST", body: JSON.stringify(formData(form)), loadingLabel: "正在登录" });
+    await finishAuthentication(data.user);
     showNotice("登录成功");
   }));
 
   $("#registerForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
-    await api("/api/register", { method: "POST", body: JSON.stringify(formData(form)) });
-    showNotice("申请已提交，等待管理员审核");
+    const data = await api("/api/register", { method: "POST", body: JSON.stringify(formData(form)), loadingLabel: "正在创建账号" });
     form.reset();
+    await finishAuthentication(data.user);
+    showNotice("账号创建成功");
   }));
 
   $("#planForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
@@ -425,104 +726,6 @@ function bindEvents() {
     await refreshAdmin();
     showNotice("用量已保存");
   }));
-
-  document.addEventListener("click", async (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) return;
-    if (target.dataset.approve) {
-      const result = await api("/api/admin/users/approve", { method: "POST", body: JSON.stringify({ user_id: target.dataset.approve }) });
-      await refreshAdmin();
-      showNotice(provisioningNotice("用户已通过", result.provisioning, result.errors));
-    }
-    if (target.dataset.retryProvision) {
-      const result = await api("/api/admin/users/provision/retry", {
-        method: "POST",
-        body: JSON.stringify({ user_id: target.dataset.retryProvision }),
-      });
-      await refreshAdmin();
-      showNotice(provisioningNotice("重试完成", result.provisioning, result.errors));
-    }
-    if (target.dataset.reconcileUser) {
-      const result = await api("/api/admin/users/reconcile", {
-        method: "POST",
-        body: JSON.stringify({ user_id: target.dataset.reconcileUser, apply: true }),
-      });
-      await refreshAdmin();
-      showNotice(provisioningNotice("对账完成", result.reconcile, result.errors));
-    }
-    if (target.dataset.status) {
-      await api("/api/admin/users/status", {
-        method: "POST",
-        body: JSON.stringify({ user_id: target.dataset.status, status: target.dataset.value }),
-      });
-      await refreshAdmin();
-      showNotice("用户状态已更新");
-    }
-    if (target.dataset.deletePlan) {
-      if (!window.confirm("确定删除这个套餐吗？")) return;
-      await api("/api/admin/plans/delete", {
-        method: "POST",
-        body: JSON.stringify({ id: target.dataset.deletePlan }),
-      });
-      await refreshAdmin();
-      showNotice("套餐已删除");
-    }
-    if (target.dataset.deletePanel) {
-      if (!window.confirm("确定删除这个面板吗？")) return;
-      await api("/api/admin/panels/delete", {
-        method: "POST",
-        body: JSON.stringify({ id: target.dataset.deletePanel }),
-      });
-      await refreshAdmin();
-      showNotice("面板已删除");
-    }
-    if (target.dataset.deleteNode) {
-      if (!window.confirm("确定删除这个节点吗？")) return;
-      await api("/api/admin/nodes/delete", {
-        method: "POST",
-        body: JSON.stringify({ id: target.dataset.deleteNode }),
-      });
-      await refreshAdmin();
-      showNotice("节点已删除");
-    }
-    if (target.dataset.testPanel) {
-      const result = await api("/api/admin/panels/test", {
-        method: "POST",
-        body: JSON.stringify({ panel_id: target.dataset.testPanel }),
-      });
-      showNotice(`面板连接正常：${result.inbound_count || 0} 个入站`);
-    }
-    if (target.dataset.fetchInbounds) {
-      const panelId = target.dataset.fetchInbounds === "selected" ? $("#nodePanel").value : target.dataset.fetchInbounds;
-      if (target.dataset.fetchInbounds !== "selected") {
-        $("#nodePanel").value = panelId;
-        setView("nodes");
-      }
-      const count = await fetchInboundsForPanel(panelId);
-      showNotice(`已拉取 ${count} 个入站`);
-    }
-    if (target.dataset.editPlan) {
-      const plan = state.plans.find((item) => String(item.id) === target.dataset.editPlan);
-      setFormMode(
-        $("#planForm"),
-        $("#planFormTitle"),
-        $("#planSubmitBtn"),
-        "套餐",
-        { ...plan, quota_gb: quotaGb(plan), allowed_tags: plan.allowed_tags || [] },
-      );
-      setView("settings");
-    }
-    if (target.dataset.editPanel) {
-      const panel = state.panels.find((item) => String(item.id) === target.dataset.editPanel);
-      setFormMode($("#panelForm"), $("#panelFormTitle"), $("#panelSubmitBtn"), " X-UI 面板", panel);
-      $("#panelPasswordHelp").textContent = panel.has_password ? "已保存密码；留空会继续使用原密码，输入新密码才会替换。" : "当前没有保存密码，请填写面板密码。";
-      setView("settings");
-    }
-    if (target.dataset.editNode) {
-      fillForm($("#nodeForm"), state.nodes.find((item) => String(item.id) === target.dataset.editNode));
-      setView("nodes");
-    }
-  });
 }
 
 async function boot() {
@@ -532,7 +735,7 @@ async function boot() {
   resetNodeForm();
   await refreshPublic();
   await refreshMe();
-  setView("account");
+  setView("storefront");
 }
 
 boot().catch((error) => showNotice(error.message));
