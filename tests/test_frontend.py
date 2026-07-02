@@ -16,8 +16,8 @@ class FrontendTests(unittest.TestCase):
         self.assertNotIn('id="registerPlan"', index_html)
         self.assertIn("pendingPlanId", app_js)
         self.assertIn("data-apply-plan", app_js)
-        self.assertIn('/api/applications', app_js)
-        self.assertIn("submitApplication", app_js)
+        self.assertIn('/api/purchases', app_js)
+        self.assertIn("submitPurchase", app_js)
 
     def test_frontend_has_deliberate_desktop_mobile_and_slow_loading_states(self):
         root = Path(__file__).resolve().parents[1]
@@ -157,6 +157,57 @@ class FrontendTests(unittest.TestCase):
         self.assertIn('id="panelPasswordHelp"', index_html)
         self.assertIn("留空保留已保存密码", index_html)
         self.assertIn("panelPasswordHelp", app_js)
+
+    def test_plan_and_panel_create_actions_open_list_level_dialogs(self):
+        root = Path(__file__).resolve().parents[1]
+        app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
+        index_html = (root / "static" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="planDialog"', index_html)
+        self.assertIn('id="panelDialog"', index_html)
+        self.assertIn('id="newPlanBtn"', index_html)
+        self.assertIn('id="newPanelBtn"', index_html)
+        self.assertIn('name="price_yuan"', index_html)
+        self.assertIn('$("#planDialog").showModal()', app_js)
+        self.assertIn('$("#panelDialog").showModal()', app_js)
+
+    def test_balance_purchase_recharge_and_multi_client_subscription_controls_exist(self):
+        root = Path(__file__).resolve().parents[1]
+        app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
+        index_html = (root / "static" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="balanceText"', index_html)
+        self.assertIn('id="rechargeForm"', index_html)
+        self.assertIn('data-sub-format="clash"', index_html)
+        self.assertIn('data-sub-format="base64"', index_html)
+        self.assertIn('data-sub-format="singbox"', index_html)
+        self.assertIn('/api/recharge', app_js)
+        self.assertIn('/api/purchases', app_js)
+        self.assertIn("subscription_urls", app_js)
+        self.assertNotIn("state.me.email ||", app_js)
+
+    def test_user_list_has_search_filters_collapse_notes_and_balance_tools(self):
+        root = Path(__file__).resolve().parents[1]
+        app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
+        index_html = (root / "static" / "index.html").read_text(encoding="utf-8")
+
+        for marker in ('id="userSearch"', 'id="userStatusFilter"', 'id="userRoleFilter"', 'id="priorityFilter"', 'id="toggleUserListBtn"'):
+            self.assertIn(marker, index_html)
+        self.assertIn("data-user-note-form", app_js)
+        self.assertIn("data-user-balance-form", app_js)
+        self.assertIn('/api/admin/users/note', app_js)
+        self.assertIn('/api/admin/users/balance', app_js)
+        self.assertIn("filteredUsers", app_js)
+
+    def test_admin_recharge_card_generator_is_available(self):
+        root = Path(__file__).resolve().parents[1]
+        app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
+        index_html = (root / "static" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="rechargeCardForm"', index_html)
+        self.assertIn('id="rechargeCardList"', index_html)
+        self.assertIn('/api/admin/recharge-cards', app_js)
+        self.assertIn("generatedCardCodes", app_js)
 
 
 if __name__ == "__main__":

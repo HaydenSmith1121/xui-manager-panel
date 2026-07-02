@@ -256,6 +256,25 @@ class ProvisioningTests(unittest.TestCase):
         self.assertFalse(client["desired_enabled"])
         self.assertFalse(client["remote_enabled"])
 
+    def test_activate_purchased_plan_disables_old_targets_before_enabling_new_targets(self):
+        fake = FakePanelClient([inbound(1), inbound(2)])
+        panel_id = self.panel("Panel", "https://panel.example.com", fake=fake)
+        self.managed_node(panel_id, 1)
+        service = ProvisioningService(self.db, self.factory, now=lambda: 1_700_000_000)
+        service.provision_user(self.user["id"])
+        basic_plan = self.db.create_plan("Basic", 30, 30, ["basic"], False)
+        self.db.create_node("Basic", VLESS, 1, ["basic"], True, panel_id, 2, "managed")
+        self.db.purchase_plan(self.user["id"], basic_plan)
+
+        summary = service.activate_purchased_plan(self.user["id"])
+
+        managed = {item["inbound_id"]: item for item in self.db.list_managed_clients(user_id=self.user["id"])}
+        old_client = fake.find_client(fake.get_inbound(1), managed[1]["remote_email"])
+        new_client = fake.find_client(fake.get_inbound(2), managed[2]["remote_email"])
+        self.assertFalse(old_client["enable"])
+        self.assertTrue(new_client["enable"])
+        self.assertEqual(summary["provisioned"], 1)
+
     def test_delete_user_removes_remote_client_then_local_records(self):
         panel_id = self.panel("Panel", "https://panel.example.com")
         node_id = self.managed_node(panel_id, 1)

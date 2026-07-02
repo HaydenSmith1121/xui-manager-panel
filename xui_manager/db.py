@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import secrets
 import sqlite3
 import time
@@ -48,6 +49,7 @@ class Database:
                     duration_days integer not null,
                     allowed_tags text not null default '[]',
                     require_approval integer not null default 1,
+                    price_cents integer not null default 0,
                     enabled integer not null default 1,
                     created_at integer not null
                 );
@@ -64,7 +66,39 @@ class Database:
                     expire_at integer not null default 0,
                     created_at integer not null,
                     approved_at integer not null default 0,
+                    balance_cents integer not null default 0,
+                    admin_note text not null default '',
+                    is_priority integer not null default 0,
                     foreign key(plan_id) references plans(id)
+                );
+
+                create table if not exists recharge_cards (
+                    id integer primary key autoincrement,
+                    code_hash text not null unique,
+                    code_suffix text not null,
+                    amount_cents integer not null,
+                    status text not null default 'unused',
+                    created_by integer,
+                    redeemed_by integer,
+                    created_at integer not null,
+                    redeemed_at integer not null default 0,
+                    foreign key(created_by) references users(id) on delete set null,
+                    foreign key(redeemed_by) references users(id) on delete set null
+                );
+
+                create table if not exists balance_transactions (
+                    id integer primary key autoincrement,
+                    user_id integer not null,
+                    amount_cents integer not null,
+                    balance_after_cents integer not null,
+                    kind text not null,
+                    note text not null default '',
+                    recharge_card_id integer,
+                    created_by integer,
+                    created_at integer not null,
+                    foreign key(user_id) references users(id) on delete cascade,
+                    foreign key(recharge_card_id) references recharge_cards(id) on delete set null,
+                    foreign key(created_by) references users(id) on delete set null
                 );
 
                 create table if not exists panels (
@@ -160,8 +194,18 @@ class Database:
 
                 create index if not exists idx_managed_clients_panel_inbound
                 on managed_clients(panel_id, inbound_id);
+
+                create index if not exists idx_balance_transactions_user_created
+                on balance_transactions(user_id, created_at desc, id desc);
+
+                create index if not exists idx_recharge_cards_status_created
+                on recharge_cards(status, created_at desc, id desc);
                 """
             )
+            self._ensure_column(conn, "plans", "price_cents", "integer not null default 0")
+            self._ensure_column(conn, "users", "balance_cents", "integer not null default 0")
+            self._ensure_column(conn, "users", "admin_note", "text not null default ''")
+            self._ensure_column(conn, "users", "is_priority", "integer not null default 0")
             self._ensure_column(conn, "nodes", "inbound_id", "integer not null default 0")
             self._ensure_column(conn, "nodes", "mode", "text not null default 'static'")
             self._ensure_column(conn, "usage_ledgers", "reset_pending", "integer not null default 0")
@@ -195,6 +239,7 @@ class Database:
         allowed_tags: list[str],
         require_approval: bool,
         enabled: bool = True,
+        price_cents: int = 0,
     ) -> int:
         name = name.strip()
         if not name:
@@ -206,8 +251,8 @@ class Database:
                 raise ValueError("plan name already exists")
             cur = conn.execute(
                 """
-                insert into plans(name, quota_bytes, duration_days, allowed_tags, require_approval, enabled, created_at)
-                values (?, ?, ?, ?, ?, ?, ?)
+                insert into plans(name, quota_bytes, duration_days, allowed_tags, require_approval, price_cents, enabled, created_at)
+                values (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     name,
@@ -215,6 +260,7 @@ class Database:
                     int(duration_days),
                     json.dumps(allowed_tags),
                     int(require_approval),
+                    max(int(price_cents), 0),
                     int(enabled),
                     int(time.time()),
                 ),
@@ -230,6 +276,7 @@ class Database:
         allowed_tags: list[str],
         require_approval: bool,
         enabled: bool = True,
+        price_cents: int = 0,
     ) -> dict[str, Any]:
         name = name.strip()
         with self.session() as conn:
@@ -242,7 +289,7 @@ class Database:
             conn.execute(
                 """
                 update plans
-                set name=?, quota_bytes=?, duration_days=?, allowed_tags=?, require_approval=?, enabled=?
+                set name=?, quota_bytes=?, duration_days=?, allowed_tags=?, require_approval=?, price_cents=?, enabled=?
                 where id=?
                 """,
                 (
@@ -251,6 +298,7 @@ class Database:
                     int(duration_days),
                     json.dumps(allowed_tags),
                     int(require_approval),
+                    max(int(price_cents), 0),
                     int(enabled),
                     int(plan_id),
                 ),
@@ -429,6 +477,216 @@ class Database:
     def list_users(self) -> list[dict[str, Any]]:
         with self.session() as conn:
             return [self._decode_user(row) for row in conn.execute("select * from users order by id")]
+
+    def purchase_plan(self, user_id: int, plan_id: int) -> dict[str, Any]:
+        now = int(time.time())
+        with self.session() as conn:
+            conn.execute("begin immediate")
+            user = conn.execute("select * from users where id=?", (int(user_id),)).fetchone()
+            if not user:
+                raise ValueError("用户不存在")
+            if user["role"] != "user":
+                raise ValueError("管理员账号不能购买套餐")
+            if user["status"] == "disabled":
+                raise ValueError("账号已停用")
+            plan = conn.execute("select * from plans where id=? and enabled=1", (int(plan_id),)).fetchone()
+            if not plan:
+                raise ValueError("套餐不存在或已停售")
+            price_cents = int(plan["price_cents"] or 0)
+            balance_cents = int(user["balance_cents"] or 0)
+            if balance_cents < price_cents:
+                raise ValueError("余额不足，请先使用充值卡充值")
+            new_balance = balance_cents - price_cents
+            expire_at = now + int(plan["duration_days"]) * 86400
+            conn.execute(
+                """
+                update users
+                set balance_cents=?, status='active', plan_id=?, quota_bytes=?, expire_at=?, approved_at=?
+                where id=?
+                """,
+                (new_balance, int(plan_id), int(plan["quota_bytes"]), expire_at, now, int(user_id)),
+            )
+            conn.execute("delete from usage_records where user_id=?", (int(user_id),))
+            conn.execute(
+                """
+                insert or ignore into usage_ledgers(managed_client_id, rate, reset_pending, updated_at)
+                select id, rate, 1, ? from managed_clients where user_id=?
+                """,
+                (now, int(user_id)),
+            )
+            conn.execute(
+                """
+                update usage_ledgers
+                set raw_up=0, raw_down=0, weighted_up=0, weighted_down=0, reset_pending=1, updated_at=?
+                where managed_client_id in (select id from managed_clients where user_id=?)
+                """,
+                (now, int(user_id)),
+            )
+            self._insert_balance_transaction(
+                conn,
+                int(user_id),
+                -price_cents,
+                new_balance,
+                "purchase",
+                f"购买套餐：{plan['name']}",
+                None,
+                int(user_id),
+                now,
+            )
+        return self.get_user(user_id)
+
+    def adjust_user_balance(self, user_id: int, amount_cents: int, note: str, created_by: int) -> dict[str, Any]:
+        amount_cents = int(amount_cents)
+        note = str(note or "").strip()
+        if amount_cents == 0:
+            raise ValueError("调整金额不能为 0")
+        if not note:
+            raise ValueError("请填写余额调整原因")
+        now = int(time.time())
+        with self.session() as conn:
+            conn.execute("begin immediate")
+            user = conn.execute("select balance_cents from users where id=?", (int(user_id),)).fetchone()
+            if not user:
+                raise ValueError("用户不存在")
+            new_balance = int(user["balance_cents"] or 0) + amount_cents
+            if new_balance < 0:
+                raise ValueError("余额不能为负数")
+            conn.execute("update users set balance_cents=? where id=?", (new_balance, int(user_id)))
+            self._insert_balance_transaction(
+                conn, int(user_id), amount_cents, new_balance, "admin_adjustment", note, None, int(created_by), now
+            )
+        return self.get_user(user_id)
+
+    def update_user_note(self, user_id: int, note: str, is_priority: bool) -> dict[str, Any]:
+        with self.session() as conn:
+            result = conn.execute(
+                "update users set admin_note=?, is_priority=? where id=?",
+                (str(note or "").strip()[:500], int(bool(is_priority)), int(user_id)),
+            )
+            if result.rowcount == 0:
+                raise ValueError("用户不存在")
+        return self.get_user(user_id)
+
+    def create_recharge_cards(self, amount_cents: int, count: int, created_by: int) -> list[dict[str, Any]]:
+        amount_cents = int(amount_cents)
+        count = int(count)
+        if amount_cents <= 0:
+            raise ValueError("充值卡金额必须大于 0")
+        if count < 1 or count > 100:
+            raise ValueError("单次生成数量必须在 1 到 100 之间")
+        now = int(time.time())
+        cards: list[dict[str, Any]] = []
+        with self.session() as conn:
+            conn.execute("begin immediate")
+            for _ in range(count):
+                raw = secrets.token_hex(12).upper()
+                code = "HXY-" + "-".join(raw[index:index + 4] for index in range(0, len(raw), 4))
+                digest = hashlib.sha256(code.encode("utf-8")).hexdigest()
+                cur = conn.execute(
+                    """
+                    insert into recharge_cards(code_hash, code_suffix, amount_cents, created_by, created_at)
+                    values (?, ?, ?, ?, ?)
+                    """,
+                    (digest, code[-4:], amount_cents, int(created_by), now),
+                )
+                cards.append({"id": int(cur.lastrowid), "code": code, "amount_cents": amount_cents})
+        return cards
+
+    def redeem_recharge_card(self, user_id: int, code: str) -> dict[str, Any]:
+        normalized = str(code or "").strip().upper()
+        digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+        now = int(time.time())
+        with self.session() as conn:
+            conn.execute("begin immediate")
+            user = conn.execute("select balance_cents, role from users where id=?", (int(user_id),)).fetchone()
+            if not user or user["role"] != "user":
+                raise ValueError("用户不存在")
+            card = conn.execute(
+                "select * from recharge_cards where code_hash=? and status='unused'", (digest,)
+            ).fetchone()
+            if not card:
+                raise ValueError("充值卡无效或已使用")
+            new_balance = int(user["balance_cents"] or 0) + int(card["amount_cents"])
+            updated = conn.execute(
+                """
+                update recharge_cards set status='used', redeemed_by=?, redeemed_at=?
+                where id=? and status='unused'
+                """,
+                (int(user_id), now, int(card["id"])),
+            )
+            if updated.rowcount != 1:
+                raise ValueError("充值卡无效或已使用")
+            conn.execute("update users set balance_cents=? where id=?", (new_balance, int(user_id)))
+            self._insert_balance_transaction(
+                conn,
+                int(user_id),
+                int(card["amount_cents"]),
+                new_balance,
+                "recharge_card",
+                f"充值卡 ****{card['code_suffix']}",
+                int(card["id"]),
+                int(user_id),
+                now,
+            )
+        return self.get_user(user_id)
+
+    def list_balance_transactions(self, user_id: int, limit: int = 50) -> list[dict[str, Any]]:
+        with self.session() as conn:
+            rows = conn.execute(
+                """
+                select * from balance_transactions where user_id=?
+                order by created_at desc, id desc limit ?
+                """,
+                (int(user_id), max(1, min(int(limit), 200))),
+            )
+            return [dict(row) for row in rows]
+
+    def list_recharge_cards(self, limit: int = 200) -> list[dict[str, Any]]:
+        with self.session() as conn:
+            rows = conn.execute(
+                """
+                select recharge_cards.id, recharge_cards.code_suffix, recharge_cards.amount_cents,
+                       recharge_cards.status, recharge_cards.created_at, recharge_cards.redeemed_at,
+                       creator.email as created_by_email, redeemer.email as redeemed_by_email
+                from recharge_cards
+                left join users creator on creator.id=recharge_cards.created_by
+                left join users redeemer on redeemer.id=recharge_cards.redeemed_by
+                order by recharge_cards.created_at desc, recharge_cards.id desc limit ?
+                """,
+                (max(1, min(int(limit), 500)),),
+            )
+            return [dict(row) | {"masked_code": f"HXY-****-****-{row['code_suffix']}"} for row in rows]
+
+    def _insert_balance_transaction(
+        self,
+        conn: sqlite3.Connection,
+        user_id: int,
+        amount_cents: int,
+        balance_after_cents: int,
+        kind: str,
+        note: str,
+        recharge_card_id: int | None,
+        created_by: int | None,
+        created_at: int,
+    ) -> None:
+        conn.execute(
+            """
+            insert into balance_transactions(
+                user_id, amount_cents, balance_after_cents, kind, note,
+                recharge_card_id, created_by, created_at
+            ) values (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                amount_cents,
+                balance_after_cents,
+                kind,
+                note,
+                recharge_card_id,
+                created_by,
+                created_at,
+            ),
+        )
 
     def delete_user(self, user_id: int) -> None:
         user_id = int(user_id)
@@ -1005,7 +1263,9 @@ class Database:
         return data
 
     def _decode_user(self, row: sqlite3.Row) -> dict[str, Any]:
-        return dict(row)
+        data = dict(row)
+        data["is_priority"] = bool(data.get("is_priority", 0))
+        return data
 
 
 def normalize_panel_url(value: str) -> str:
