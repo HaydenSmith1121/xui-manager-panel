@@ -374,6 +374,22 @@ class ManagedAppTests(unittest.TestCase):
         self.assertEqual(json.loads(deleted_response.body), {"deleted": True, "errors": []})
         self.assertIsNone(self.app.db.get_user(disabled["id"]))
 
+    def test_disabling_user_reconciles_managed_clients_before_deletion(self):
+        plan_id = self.app.db.create_plan("Premium", 100, 30, [], False)
+        user = self.app.db.register_user("managed@example.com", "secret123", plan_id)
+        panel_id = self.app.db.create_panel("Panel", "https://panel.example.com", "admin", "secret")
+        self.app.db.create_node(
+            "Managed", "vless://template@example.com:443?security=tls#KR", 1, [], True, panel_id, 1, "managed"
+        )
+        self.app.provisioning.provision_user(user["id"])
+
+        response = self.post_admin("/api/admin/users/status", {"user_id": user["id"], "status": "disabled"})
+
+        managed = self.app.db.list_managed_clients(user_id=user["id"])[0]
+        self.assertEqual(response.status, 200)
+        self.assertFalse(managed["desired_enabled"])
+        self.assertFalse(managed["remote_enabled"])
+
     def test_delete_user_route_preserves_local_user_and_redacts_panel_failure(self):
         app = XuiManagerApp(Path(self.tmp.name) / "delete-errors.db", client_factory=ExplodingPanelClient)
         admin = app.db.seed_admin("admin@example.com", "password123")

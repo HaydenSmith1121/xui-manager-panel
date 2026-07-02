@@ -128,7 +128,14 @@ class XuiManagerApp:
                 }
             )
         if method == "POST" and path == "/api/admin/users/status":
-            return self.json_response({"user": self.user_summary(self.db.update_user_status(int(payload["user_id"]), payload["status"]), headers)})
+            user_id = int(payload["user_id"])
+            status = payload["status"]
+            user = self.db.update_user_status(user_id, status)
+            data: dict[str, Any] = {"user": self.user_summary(user, headers)}
+            if status in {"active", "disabled"}:
+                data["provisioning"] = self.provisioning.set_user_enabled(user_id, status == "active")
+                data["errors"] = self.provisioning.failure_details_for_user(user_id)
+            return self.json_response(data)
         if method == "POST" and path == "/api/admin/users/delete":
             result = self.provisioning.delete_user(int(payload["user_id"]))
             return self.json_response(result, 200 if result["deleted"] else 502)
