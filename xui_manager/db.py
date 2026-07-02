@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import base64
 import hashlib
+import hmac
+import random
 import secrets
 import sqlite3
 import time
@@ -76,6 +79,7 @@ class Database:
                     id integer primary key autoincrement,
                     code_hash text not null unique,
                     code_suffix text not null,
+                    encrypted_code text,
                     amount_cents integer not null,
                     status text not null default 'unused',
                     created_by integer,
@@ -122,8 +126,43 @@ class Database:
                     rate real not null default 1,
                     tags text not null default '[]',
                     enabled integer not null default 1,
+                    latency_ms integer,
+                    status text not null default 'unknown',
+                    last_checked_at integer not null default 0,
                     created_at integer not null,
                     foreign key(panel_id) references panels(id)
+                );
+
+                create table if not exists checkin_records (
+                    id integer primary key autoincrement,
+                    user_id integer not null,
+                    checkin_date text not null,
+                    reward_bytes integer not null,
+                    created_at integer not null,
+                    unique(user_id, checkin_date),
+                    foreign key(user_id) references users(id) on delete cascade
+                );
+
+                create table if not exists tickets (
+                    id integer primary key autoincrement,
+                    user_id integer not null,
+                    subject text not null,
+                    message text not null,
+                    status text not null default 'open',
+                    created_at integer not null,
+                    updated_at integer not null,
+                    foreign key(user_id) references users(id) on delete cascade
+                );
+
+                create table if not exists ticket_replies (
+                    id integer primary key autoincrement,
+                    ticket_id integer not null,
+                    user_id integer,
+                    role text not null,
+                    message text not null,
+                    created_at integer not null,
+                    foreign key(ticket_id) references tickets(id) on delete cascade,
+                    foreign key(user_id) references users(id) on delete set null
                 );
 
                 create table if not exists usage_records (
@@ -200,14 +239,27 @@ class Database:
 
                 create index if not exists idx_recharge_cards_status_created
                 on recharge_cards(status, created_at desc, id desc);
+
+                create index if not exists idx_checkin_records_user_date
+                on checkin_records(user_id, checkin_date desc);
+
+                create index if not exists idx_tickets_user_updated
+                on tickets(user_id, updated_at desc, id desc);
+
+                create index if not exists idx_ticket_replies_ticket_created
+                on ticket_replies(ticket_id, created_at, id);
                 """
             )
             self._ensure_column(conn, "plans", "price_cents", "integer not null default 0")
             self._ensure_column(conn, "users", "balance_cents", "integer not null default 0")
             self._ensure_column(conn, "users", "admin_note", "text not null default ''")
             self._ensure_column(conn, "users", "is_priority", "integer not null default 0")
+            self._ensure_column(conn, "recharge_cards", "encrypted_code", "text")
             self._ensure_column(conn, "nodes", "inbound_id", "integer not null default 0")
             self._ensure_column(conn, "nodes", "mode", "text not null default 'static'")
+            self._ensure_column(conn, "nodes", "latency_ms", "integer")
+            self._ensure_column(conn, "nodes", "status", "text not null default 'unknown'")
+            self._ensure_column(conn, "nodes", "last_checked_at", "integer not null default 0")
             self._ensure_column(conn, "usage_ledgers", "reset_pending", "integer not null default 0")
 
     def _ensure_column(self, conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
@@ -580,7 +632,13 @@ class Database:
                 raise ValueError("用户不存在")
         return self.get_user(user_id)
 
-    def create_recharge_cards(self, amount_cents: int, count: int, created_by: int) -> list[dict[str, Any]]:
+    def create_recharge_cards(
+        self,
+        amount_cents: int,
+        count: int,
+        created_by: int,
+        encryption_secret: str | None = None,
+    ) -> list[dict[str, Any]]:
         amount_cents = int(amount_cents)
         count = int(count)
         if amount_cents <= 0:
@@ -589,21 +647,44 @@ class Database:
             raise ValueError("单次生成数量必须在 1 到 100 之间")
         now = int(time.time())
         cards: list[dict[str, Any]] = []
+        normalized_secret = str(encryption_secret or "").strip()
         with self.session() as conn:
             conn.execute("begin immediate")
             for _ in range(count):
                 raw = secrets.token_hex(12).upper()
                 code = "HXY-" + "-".join(raw[index:index + 4] for index in range(0, len(raw), 4))
                 digest = hashlib.sha256(code.encode("utf-8")).hexdigest()
+                encrypted_code = encrypt_text(code, normalized_secret) if normalized_secret else None
                 cur = conn.execute(
                     """
-                    insert into recharge_cards(code_hash, code_suffix, amount_cents, created_by, created_at)
-                    values (?, ?, ?, ?, ?)
+                    insert into recharge_cards(code_hash, code_suffix, encrypted_code, amount_cents, created_by, created_at)
+                    values (?, ?, ?, ?, ?, ?)
                     """,
-                    (digest, code[-4:], amount_cents, int(created_by), now),
+                    (digest, code[-4:], encrypted_code, amount_cents, int(created_by), now),
                 )
                 cards.append({"id": int(cur.lastrowid), "code": code, "amount_cents": amount_cents})
         return cards
+
+    def reveal_recharge_card(self, card_id: int, encryption_secret: str) -> dict[str, Any]:
+        if not str(encryption_secret or "").strip():
+            raise ValueError("RECHARGE_CARD_SECRET 未配置，无法查看完整卡密")
+        with self.session() as conn:
+            row = conn.execute(
+                "select id, encrypted_code, code_suffix, amount_cents, status from recharge_cards where id=?",
+                (int(card_id),),
+            ).fetchone()
+            if not row:
+                raise ValueError("充值卡不存在")
+            if not row["encrypted_code"]:
+                raise ValueError("旧充值卡无法查看完整卡密")
+            code = decrypt_text(str(row["encrypted_code"]), str(encryption_secret).strip())
+            return {
+                "id": int(row["id"]),
+                "code": code,
+                "amount_cents": int(row["amount_cents"]),
+                "status": row["status"],
+                "masked_code": f"HXY-****-****-{row['code_suffix']}",
+            }
 
     def redeem_recharge_card(self, user_id: int, code: str) -> dict[str, Any]:
         normalized = str(code or "").strip().upper()
@@ -658,7 +739,7 @@ class Database:
         with self.session() as conn:
             rows = conn.execute(
                 """
-                select recharge_cards.id, recharge_cards.code_suffix, recharge_cards.amount_cents,
+                select recharge_cards.id, recharge_cards.code_suffix, recharge_cards.encrypted_code, recharge_cards.amount_cents,
                        recharge_cards.status, recharge_cards.created_at, recharge_cards.redeemed_at,
                        creator.email as created_by_email, redeemer.email as redeemed_by_email
                 from recharge_cards
@@ -668,7 +749,14 @@ class Database:
                 """,
                 (max(1, min(int(limit), 500)),),
             )
-            return [dict(row) | {"masked_code": f"HXY-****-****-{row['code_suffix']}"} for row in rows]
+            cards: list[dict[str, Any]] = []
+            for row in rows:
+                item = dict(row)
+                encrypted_code = item.pop("encrypted_code", None)
+                item["masked_code"] = f"HXY-****-****-{row['code_suffix']}"
+                item["can_reveal"] = bool(encrypted_code)
+                cards.append(item)
+            return cards
 
     def _insert_balance_transaction(
         self,
@@ -903,6 +991,22 @@ class Database:
         sql += " order by id"
         with self.session() as conn:
             return [self._decode_node(row) for row in conn.execute(sql)]
+
+    def update_node_status(self, node_id: int, status: str, latency_ms: int | None = None) -> dict[str, Any]:
+        status = str(status or "unknown").strip().lower()
+        if status not in {"online", "offline", "degraded", "unknown", "maintenance"}:
+            raise ValueError("invalid node status")
+        latency_value = None if latency_ms is None or latency_ms == "" else max(int(latency_ms), 0)
+        now = int(time.time())
+        with self.session() as conn:
+            result = conn.execute(
+                "update nodes set status=?, latency_ms=?, last_checked_at=? where id=?",
+                (status, latency_value, now, int(node_id)),
+            )
+            if result.rowcount == 0:
+                raise ValueError("node not found")
+            row = conn.execute("select * from nodes where id=?", (int(node_id),)).fetchone()
+            return self._decode_node(row)
 
     def delete_node(self, node_id: int) -> None:
         with self.session() as conn:
@@ -1182,6 +1286,238 @@ class Database:
                 (now, int(user_id)),
             )
 
+    def checkin_settings(self) -> dict[str, Any]:
+        enabled = str(self.get_setting("checkin_enabled", "false")).lower() in {"1", "true", "yes", "on"}
+        mode = str(self.get_setting("checkin_mode", "fixed") or "fixed").strip().lower()
+        active_plan_only = str(self.get_setting("checkin_active_plan_only", "true")).lower() in {"1", "true", "yes", "on"}
+        if mode not in {"fixed", "random"}:
+            mode = "fixed"
+        return {
+            "enabled": enabled,
+            "mode": mode,
+            "fixed_gb": float(self.get_setting("checkin_fixed_gb", "1") or 1),
+            "min_gb": float(self.get_setting("checkin_min_gb", "0.5") or 0.5),
+            "max_gb": float(self.get_setting("checkin_max_gb", "1") or 1),
+            "active_plan_only": active_plan_only,
+        }
+
+    def save_checkin_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
+        enabled = bool(payload.get("enabled", False))
+        mode = str(payload.get("mode", "fixed") or "fixed").strip().lower()
+        if mode not in {"fixed", "random"}:
+            raise ValueError("invalid checkin mode")
+        fixed_gb = max(float(payload.get("fixed_gb", 1) or 0), 0)
+        min_gb = max(float(payload.get("min_gb", 0.5) or 0), 0)
+        max_gb = max(float(payload.get("max_gb", 1) or 0), 0)
+        if mode == "fixed" and fixed_gb <= 0:
+            raise ValueError("固定签到流量必须大于 0")
+        if mode == "random" and (min_gb <= 0 or max_gb <= 0 or max_gb < min_gb):
+            raise ValueError("随机签到范围不正确")
+        with self.session() as conn:
+            for key, value in {
+                "checkin_enabled": "true" if enabled else "false",
+                "checkin_mode": mode,
+                "checkin_fixed_gb": fixed_gb,
+                "checkin_min_gb": min_gb,
+                "checkin_max_gb": max_gb,
+                "checkin_active_plan_only": "true" if payload.get("active_plan_only", True) else "false",
+            }.items():
+                conn.execute(
+                    """
+                    insert into app_settings(key, value) values (?, ?)
+                    on conflict(key) do update set value=excluded.value
+                    """,
+                    (key, str(value)),
+                )
+        return self.checkin_settings()
+
+    def checkin_status(self, user_id: int) -> dict[str, Any]:
+        now = int(time.time())
+        today = current_date_key(now)
+        settings = self.checkin_settings()
+        with self.session() as conn:
+            user_row = conn.execute("select * from users where id=?", (int(user_id),)).fetchone()
+            if not user_row:
+                raise ValueError("用户不存在")
+            user = self._decode_user(user_row)
+            checked = conn.execute(
+                "select * from checkin_records where user_id=? and checkin_date=?",
+                (int(user_id), today),
+            ).fetchone()
+            rows = conn.execute(
+                """
+                select id, checkin_date, reward_bytes, created_at
+                from checkin_records
+                where user_id=?
+                order by checkin_date desc, id desc limit 7
+                """,
+                (int(user_id),),
+            )
+            recent = [dict(row) for row in rows]
+        return {
+            "settings": settings,
+            "enabled": bool(settings["enabled"]),
+            "eligible": self._user_can_checkin(user, now),
+            "checked_in_today": bool(checked),
+            "today": today,
+            "last_reward_bytes": int(checked["reward_bytes"]) if checked else 0,
+            "recent": recent,
+        }
+
+    def perform_checkin(self, user_id: int) -> dict[str, Any]:
+        settings = self.checkin_settings()
+        if not settings["enabled"]:
+            raise ValueError("签到功能未开启")
+        now = int(time.time())
+        today = current_date_key(now)
+        if settings["mode"] == "random":
+            reward_gb = random.uniform(float(settings["min_gb"]), float(settings["max_gb"]))
+        else:
+            reward_gb = float(settings["fixed_gb"])
+        reward_bytes = bytes_from_gb(reward_gb)
+        if reward_bytes <= 0:
+            raise ValueError("签到奖励流量必须大于 0")
+        with self.session() as conn:
+            conn.execute("begin immediate")
+            user_row = conn.execute("select * from users where id=?", (int(user_id),)).fetchone()
+            if not user_row:
+                raise ValueError("用户不存在")
+            user = self._decode_user(user_row)
+            if not self._user_can_checkin(user, now):
+                raise ValueError("仅限已开通套餐的用户签到")
+            existing = conn.execute(
+                "select id from checkin_records where user_id=? and checkin_date=?",
+                (int(user_id), today),
+            ).fetchone()
+            if existing:
+                raise ValueError("今日已签到")
+            new_quota = int(user["quota_bytes"] or 0) + int(reward_bytes)
+            conn.execute("update users set quota_bytes=? where id=?", (new_quota, int(user_id)))
+            cur = conn.execute(
+                """
+                insert into checkin_records(user_id, checkin_date, reward_bytes, created_at)
+                values (?, ?, ?, ?)
+                """,
+                (int(user_id), today, int(reward_bytes), now),
+            )
+            record = {
+                "id": int(cur.lastrowid),
+                "user_id": int(user_id),
+                "checkin_date": today,
+                "reward_bytes": int(reward_bytes),
+                "created_at": now,
+            }
+        return {"record": record, "user": self.get_user(user_id), "checkin": self.checkin_status(user_id)}
+
+    def _user_can_checkin(self, user: dict[str, Any], now: int | None = None) -> bool:
+        now = int(time.time()) if now is None else int(now)
+        return (
+            user.get("role") == "user"
+            and user.get("status") == "active"
+            and user.get("plan_id") is not None
+            and int(user.get("expire_at") or 0) > now
+        )
+
+    def create_ticket(self, user_id: int, subject: str, message: str) -> dict[str, Any]:
+        subject = str(subject or "").strip()
+        message = str(message or "").strip()
+        if not subject:
+            raise ValueError("工单标题不能为空")
+        if not message:
+            raise ValueError("工单内容不能为空")
+        now = int(time.time())
+        with self.session() as conn:
+            user = conn.execute("select id from users where id=?", (int(user_id),)).fetchone()
+            if not user:
+                raise ValueError("用户不存在")
+            cur = conn.execute(
+                """
+                insert into tickets(user_id, subject, message, status, created_at, updated_at)
+                values (?, ?, ?, 'open', ?, ?)
+                """,
+                (int(user_id), subject[:120], message[:2000], now, now),
+            )
+            ticket_id = int(cur.lastrowid)
+        return self.get_ticket(ticket_id)
+
+    def get_ticket(self, ticket_id: int) -> dict[str, Any]:
+        with self.session() as conn:
+            row = conn.execute(
+                """
+                select tickets.*, users.email as user_email,
+                       (select count(*) from ticket_replies where ticket_replies.ticket_id=tickets.id) as reply_count
+                from tickets join users on users.id=tickets.user_id
+                where tickets.id=?
+                """,
+                (int(ticket_id),),
+            ).fetchone()
+            if not row:
+                raise ValueError("工单不存在")
+            return self._decode_ticket(conn, row, include_replies=True)
+
+    def list_user_tickets(self, user_id: int) -> list[dict[str, Any]]:
+        with self.session() as conn:
+            rows = conn.execute(
+                """
+                select tickets.*, users.email as user_email,
+                       (select count(*) from ticket_replies where ticket_replies.ticket_id=tickets.id) as reply_count
+                from tickets join users on users.id=tickets.user_id
+                where tickets.user_id=?
+                order by tickets.updated_at desc, tickets.id desc
+                """,
+                (int(user_id),),
+            )
+            return [self._decode_ticket(conn, row, include_replies=True) for row in rows]
+
+    def list_admin_tickets(self) -> list[dict[str, Any]]:
+        with self.session() as conn:
+            rows = conn.execute(
+                """
+                select tickets.*, users.email as user_email,
+                       (select count(*) from ticket_replies where ticket_replies.ticket_id=tickets.id) as reply_count
+                from tickets join users on users.id=tickets.user_id
+                order by tickets.updated_at desc, tickets.id desc
+                """
+            )
+            return [self._decode_ticket(conn, row, include_replies=True) for row in rows]
+
+    def reply_ticket(self, ticket_id: int, user_id: int | None, message: str, status: str | None = None) -> dict[str, Any]:
+        message = str(message or "").strip()
+        if not message:
+            raise ValueError("回复内容不能为空")
+        next_status = str(status or "open").strip().lower()
+        if next_status not in {"open", "pending", "closed"}:
+            raise ValueError("invalid ticket status")
+        now = int(time.time())
+        role = "admin"
+        if user_id is not None:
+            user = self.get_user(int(user_id))
+            role = str(user.get("role", "user")) if user else "admin"
+        with self.session() as conn:
+            ticket = conn.execute("select id from tickets where id=?", (int(ticket_id),)).fetchone()
+            if not ticket:
+                raise ValueError("工单不存在")
+            conn.execute(
+                "insert into ticket_replies(ticket_id, user_id, role, message, created_at) values (?, ?, ?, ?, ?)",
+                (int(ticket_id), int(user_id) if user_id is not None else None, role, message[:2000], now),
+            )
+            conn.execute(
+                "update tickets set status=?, updated_at=? where id=?",
+                (next_status, now, int(ticket_id)),
+            )
+        return self.get_ticket(ticket_id)
+
+    def _decode_ticket(self, conn: sqlite3.Connection, row: sqlite3.Row, include_replies: bool = False) -> dict[str, Any]:
+        ticket = dict(row)
+        ticket["reply_count"] = int(ticket.get("reply_count") or 0)
+        if include_replies:
+            replies = conn.execute(
+                "select id, ticket_id, user_id, role, message, created_at from ticket_replies where ticket_id=? order by created_at, id",
+                (int(ticket["id"]),),
+            )
+            ticket["replies"] = [dict(reply) for reply in replies]
+        return ticket
+
     def get_setting(self, key: str, default: Any = None) -> Any:
         with self.session() as conn:
             row = conn.execute("select value from app_settings where key=?", (key,)).fetchone()
@@ -1208,6 +1544,12 @@ class Database:
         data = dict(row)
         data["tags"] = json.loads(data.get("tags") or "[]")
         data["enabled"] = bool(data["enabled"])
+        if "latency_ms" not in data:
+            data["latency_ms"] = None
+        if "status" not in data or not data.get("status"):
+            data["status"] = "unknown"
+        if "last_checked_at" not in data:
+            data["last_checked_at"] = 0
         return data
 
     def _validate_node_input(
@@ -1286,3 +1628,44 @@ def normalize_panel_url(value: str) -> str:
     if not value:
         raise ValueError("panel address is required")
     return value.rstrip("/") + "/"
+
+
+def current_date_key(timestamp: int | None = None) -> str:
+    return time.strftime("%Y-%m-%d", time.localtime(int(timestamp or time.time())))
+
+
+def _secret_key(secret: str) -> bytes:
+    return hashlib.sha256(str(secret).encode("utf-8")).digest()
+
+
+def encrypt_text(value: str, secret: str) -> str:
+    if not secret:
+        raise ValueError("RECHARGE_CARD_SECRET 未配置")
+    nonce = secrets.token_bytes(16)
+    key = _secret_key(secret)
+    plain = value.encode("utf-8")
+    stream = hmac.new(key, nonce + b"stream", hashlib.sha256).digest()
+    cipher = bytes(byte ^ stream[index % len(stream)] for index, byte in enumerate(plain))
+    tag = hmac.new(key, nonce + cipher, hashlib.sha256).digest()
+    return base64.urlsafe_b64encode(nonce + tag + cipher).decode("ascii")
+
+
+def decrypt_text(value: str, secret: str) -> str:
+    if not secret:
+        raise ValueError("RECHARGE_CARD_SECRET 未配置")
+    try:
+        raw = base64.urlsafe_b64decode(value.encode("ascii"))
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError("完整卡密解密失败") from exc
+    if len(raw) <= 48:
+        raise ValueError("完整卡密解密失败")
+    nonce = raw[:16]
+    tag = raw[16:48]
+    cipher = raw[48:]
+    key = _secret_key(secret)
+    expected = hmac.new(key, nonce + cipher, hashlib.sha256).digest()
+    if not hmac.compare_digest(tag, expected):
+        raise ValueError("完整卡密解密失败")
+    stream = hmac.new(key, nonce + b"stream", hashlib.sha256).digest()
+    plain = bytes(byte ^ stream[index % len(stream)] for index, byte in enumerate(cipher))
+    return plain.decode("utf-8")

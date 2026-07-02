@@ -4,13 +4,20 @@ const state = {
   users: [],
   panels: [],
   nodes: [],
+  nodeStatuses: [],
   rechargeCards: [],
   transactions: [],
+  checkin: null,
+  checkinSettings: {},
+  tickets: [],
+  adminTickets: [],
+  revealedCards: {},
   expandedUsers: new Set(),
   settings: {},
   inbounds: [],
   view: "home",
   pendingPlanId: null,
+  lastPurchase: null,
   loadingCount: 0,
   loadingStartedAt: 0,
   loadingTimer: null,
@@ -121,6 +128,45 @@ function statusText(status) {
   }[status] || status || "未知";
 }
 
+function nodeStatusText(status) {
+  return {
+    online: "可用",
+    offline: "离线",
+    degraded: "波动",
+    unknown: "未检测",
+    maintenance: "维护中",
+  }[status] || status || "未检测";
+}
+
+function ticketStatusText(status) {
+  return {
+    open: "处理中",
+    pending: "等待反馈",
+    closed: "已关闭",
+  }[status] || status || "未知";
+}
+
+function nodeStatusOptions(current = "unknown") {
+  return ["online", "degraded", "offline", "maintenance", "unknown"]
+    .map((status) => '<option value="' + status + '" ' + (status === current ? "selected" : "") + '>' + nodeStatusText(status) + '</option>')
+    .join("");
+}
+
+function formatTags(tags) {
+  if (Array.isArray(tags)) return tags.join("、") || "无标签";
+  return String(tags || "无标签");
+}
+
+function ticketRepliesHtml(ticket) {
+  const replies = ticket.replies || [];
+  if (!replies.length) return '<div class="meta">暂无回复</div>';
+  return replies.map((reply) => '<div class="ticket-reply ' + escapeHtml(reply.role || "") + '"><strong>' + (reply.role === "admin" ? "管理员" : "用户") + '</strong><p>' + escapeHtml(reply.message) + '</p><small>' + toDateTime(reply.created_at) + '</small></div>').join("");
+}
+
+function findPendingPlan() {
+  return state.plans.find((item) => Number(item.id) === Number(state.pendingPlanId));
+}
+
 function profileStorageKey(kind) {
   return state.me ? `xui-manager:${kind}:${state.me.id}` : `xui-manager:${kind}:guest`;
 }
@@ -212,6 +258,26 @@ async function copyTextFromInput(input) {
   input.setSelectionRange?.(0, value.length);
   const copied = document.execCommand("copy");
   if (!copied) throw new Error("复制失败，请手动选择订阅链接复制");
+}
+
+async function copyPlainText(text) {
+  const value = String(text || "");
+  if (!value) throw new Error("当前没有可复制的内容");
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const helper = document.createElement("textarea");
+  helper.value = value;
+  helper.setAttribute("readonly", "");
+  helper.style.position = "fixed";
+  helper.style.opacity = "0";
+  document.body.appendChild(helper);
+  helper.focus();
+  helper.select();
+  const copied = document.execCommand("copy");
+  helper.remove();
+  if (!copied) throw new Error("复制失败，请手动选择内容复制");
 }
 
 function subscriptionUrlForFormat(format) {
@@ -382,14 +448,40 @@ async function handleDynamicSubmit(event) {
       showNotice("用户备注已保存");
     });
   }
+  if (form.matches("[data-node-status-form]")) {
+    event.preventDefault();
+    await withFormState(form, async () => {
+      await api("/api/admin/nodes/status", {
+        method: "POST",
+        body: JSON.stringify({ ...formData(form), id: form.dataset.nodeStatusForm }),
+        loadingLabel: "正在更新节点状态",
+      });
+      await refreshAdmin();
+      await refreshNodeStatuses();
+      showNotice("节点状态已更新");
+    });
+  }
+  if (form.matches("[data-admin-ticket-reply-form]")) {
+    event.preventDefault();
+    await withFormState(form, async () => {
+      await api("/api/admin/tickets/reply", {
+        method: "POST",
+        body: JSON.stringify({ ...formData(form), ticket_id: form.dataset.adminTicketReplyForm }),
+        loadingLabel: "正在回复工单",
+      });
+      form.reset();
+      await refreshAdminTickets();
+      showNotice("工单已回复");
+    });
+  }
 }
 
 function setView(view) {
-  if (["account", "profile"].includes(view) && !state.me) {
+  if (["account", "profile", "tickets", "checkout"].includes(view) && !state.me) {
     openAuth("login");
     return;
   }
-  if (["admin", "nodes", "settings"].includes(view) && state.me?.role !== "admin") {
+  if (["admin", "nodes", "settings", "rechargeCards"].includes(view) && state.me?.role !== "admin") {
     view = "home";
   }
   state.view = view;
@@ -397,31 +489,53 @@ function setView(view) {
   $$(".view").forEach((node) => node.classList.add("hidden"));
   const target = $(`#${view}View`);
   if (target) target.classList.remove("hidden");
+  if (view === "checkout") renderCheckout();
+  if (view === "success") renderSuccess();
+  if (view === "nodeStatus") renderNodeStatuses();
+  if (view === "tickets") {
+    renderTickets();
+    renderAdminTickets();
+  }
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 async function refreshPublic() {
-  const data = await api("/api/plans", { loadingLabel: "正在读取套餐" });
-  state.plans = data.plans || [];
+  const [plans, nodeStatuses] = await Promise.all([
+    api("/api/plans", { loadingLabel: "正在读取套餐" }),
+    api("/api/nodes/status", { loadingLabel: "正在读取节点状态" }),
+  ]);
+  state.plans = plans.plans || [];
+  state.nodeStatuses = nodeStatuses.nodes || [];
   renderPlanCatalog();
+  renderNodeStatuses();
 }
 
 async function refreshMe() {
   const data = await api("/api/me", { loadingLabel: "正在读取账号" });
   state.me = data.user;
-  if (state.me?.role === "user") await refreshBalanceTransactions();
+  if (state.me?.role === "user") {
+    await refreshBalanceTransactions();
+    await refreshCheckin();
+    await refreshTickets();
+  } else {
+    state.transactions = [];
+    state.checkin = null;
+    state.tickets = [];
+  }
   renderAuth();
   if (state.me?.role === "admin") await refreshAdmin();
 }
 
 async function refreshAdmin() {
-  const [users, plans, panels, nodes, settings, rechargeCards] = await Promise.all([
+  const [users, plans, panels, nodes, settings, rechargeCards, checkinSettings, adminTickets] = await Promise.all([
     api("/api/admin/users", { loadingLabel: "正在读取后台数据" }),
     api("/api/admin/plans", { loadingLabel: "正在读取后台数据" }),
     api("/api/admin/panels", { loadingLabel: "正在读取后台数据" }),
     api("/api/admin/nodes", { loadingLabel: "正在读取后台数据" }),
     api("/api/admin/settings", { loadingLabel: "正在读取后台数据" }),
     api("/api/admin/recharge-cards", { loadingLabel: "正在读取后台数据" }),
+    api("/api/admin/checkin/settings", { loadingLabel: "正在读取后台数据" }),
+    api("/api/admin/tickets", { loadingLabel: "正在读取后台数据" }),
   ]);
   state.users = users.users || [];
   state.plans = plans.plans || state.plans;
@@ -429,8 +543,37 @@ async function refreshAdmin() {
   state.nodes = nodes.nodes || [];
   state.settings = settings.settings || {};
   state.rechargeCards = rechargeCards.cards || [];
+  state.checkinSettings = checkinSettings.settings || {};
+  state.adminTickets = adminTickets.tickets || [];
   renderAdmin();
   renderPlanCatalog();
+}
+
+async function refreshNodeStatuses() {
+  const data = await api("/api/nodes/status", { loadingLabel: "正在读取节点状态" });
+  state.nodeStatuses = data.nodes || [];
+  renderNodeStatuses();
+}
+
+async function refreshCheckin() {
+  if (state.me?.role !== "user") return;
+  const data = await api("/api/checkin", { loadingLabel: "正在读取签到状态" });
+  state.checkin = data.checkin || null;
+  renderCheckin();
+}
+
+async function refreshTickets() {
+  if (state.me?.role !== "user") return;
+  const data = await api("/api/tickets", { loadingLabel: "正在读取工单" });
+  state.tickets = data.tickets || [];
+  renderTickets();
+}
+
+async function refreshAdminTickets() {
+  if (state.me?.role !== "admin") return;
+  const data = await api("/api/admin/tickets", { loadingLabel: "正在读取后台工单" });
+  state.adminTickets = data.tickets || [];
+  renderAdminTickets();
 }
 
 async function refreshBalanceTransactions() {
@@ -442,10 +585,6 @@ function renderAuth() {
   const loggedIn = Boolean(state.me);
   const isAdmin = state.me?.role === "admin";
   loadProfilePrefs();
-  $("#sessionEmail").textContent = loggedIn ? state.me.email : "游客";
-  $("#loginBtn").classList.toggle("hidden", loggedIn);
-  $("#registerBtn").classList.toggle("hidden", loggedIn);
-  $("#refreshBtn").classList.toggle("hidden", !loggedIn);
   $("#logoutBtn").classList.toggle("hidden", !loggedIn);
   $$(".admin-only").forEach((node) => node.classList.toggle("hidden", !isAdmin));
   $$(".user-only").forEach((node) => node.classList.toggle("hidden", !loggedIn || isAdmin));
@@ -462,6 +601,11 @@ function renderAuth() {
     renderProfile();
     renderImportButtons();
     renderPlanCatalog();
+    renderCheckin();
+    renderTickets();
+    renderAdminTickets();
+    renderCheckout();
+    renderSuccess();
     return;
   }
 
@@ -486,6 +630,11 @@ function renderAuth() {
   renderProfile();
   renderImportButtons();
   renderPlanCatalog();
+  renderCheckin();
+  renderTickets();
+  renderAdminTickets();
+  renderCheckout();
+  renderSuccess();
 }
 
 function renderProfile() {
@@ -512,6 +661,7 @@ function renderProfile() {
     button.disabled = !subscriptionUrl || state.me?.status !== "active";
   });
   renderImportButtons();
+  renderCheckin();
   setAvatarNode($("#profileEntryAvatar"));
   setAvatarNode($("#mobileAvatar"), "small");
   setAvatarNode($("#profileHeroAvatar"), "large");
@@ -560,16 +710,6 @@ function renderPlanCatalog() {
       </article>`;
     })
     .join("");
-}
-
-function renderAdmin() {
-  renderUsers();
-  renderPlans();
-  renderPanels();
-  renderNodes();
-  renderRechargeCards();
-  renderUsageOptions();
-  renderSettings();
 }
 
 function userActionButtons(user) {
@@ -661,14 +801,6 @@ function renderPlans() {
     .join("");
 }
 
-function renderRechargeCards() {
-  const target = $("#rechargeCardList");
-  if (!target) return;
-  target.innerHTML = state.rechargeCards.length
-    ? state.rechargeCards.map((card) => `<article class="row-card"><header><strong>${escapeHtml(card.masked_code)}</strong><span class="status ${card.status === "used" ? "disabled" : "active"}">${card.status === "used" ? "已使用" : "未使用"}</span></header><span class="meta">${formatMoney(card.amount_cents)}${card.redeemed_by_email ? ` / ${escapeHtml(card.redeemed_by_email)}` : ""} / ${new Date(card.created_at * 1000).toLocaleString("zh-CN")}</span></article>`).join("")
-    : '<div class="empty-state">尚未生成充值卡</div>';
-}
-
 function renderPanels() {
   $("#panelList").innerHTML = state.panels
     .map((panel) => `<article class="row-card">
@@ -677,16 +809,6 @@ function renderPanels() {
     </article>`)
     .join("");
   $("#nodePanel").innerHTML = '<option value="">不绑定</option>' + state.panels.map((panel) => `<option value="${panel.id}">${escapeHtml(panel.name)}</option>`).join("");
-}
-
-function renderNodes() {
-  $("#nodeList").innerHTML = state.nodes
-    .map((node) => `<article class="row-card">
-      <header><strong>${escapeHtml(node.name)}</strong><span class="row-actions"><button data-edit-node="${node.id}" class="ghost">编辑</button><button data-delete-node="${node.id}" class="danger">删除</button></span></header>
-      <span class="meta">${node.mode === "managed" ? "托管" : "静态"} / 入站 ${node.inbound_id || 0} / 倍率 ${node.rate} / 标签：${escapeHtml((node.tags || []).join(",") || "无")}</span>
-      <span class="meta">${escapeHtml(String(node.source_url || "").slice(0, 150))}</span>
-    </article>`)
-    .join("");
 }
 
 function renderSettings() {
@@ -833,34 +955,182 @@ function closeAuth(discardPending = false) {
   state.authReturnFocus = null;
 }
 
+function renderAdmin() {
+  renderUsers();
+  renderPlans();
+  renderPanels();
+  renderNodes();
+  renderRechargeCards();
+  renderUsageOptions();
+  renderSettings();
+  renderCheckinSettings();
+  renderAdminTickets();
+}
+
+function renderRechargeCards() {
+  const target = $("#rechargeCardList");
+  if (!target) return;
+  target.innerHTML = state.rechargeCards.length
+    ? state.rechargeCards.map((card) => {
+      const code = state.revealedCards[card.id] || card.masked_code;
+      const disabled = card.can_reveal ? "" : "disabled";
+      const legacyHint = card.can_reveal ? "" : '<span class="meta">旧卡不可查看完整卡密</span>';
+      return '<article class="row-card recharge-card"><header><strong class="card-code">' + escapeHtml(code) + '</strong><span class="status ' + (card.status === "used" ? "disabled" : "active") + '">' + (card.status === "used" ? "已使用" : "未使用") + '</span></header><span class="meta">' + formatMoney(card.amount_cents) + (card.redeemed_by_email ? ' / ' + escapeHtml(card.redeemed_by_email) : "") + ' / ' + toDateTime(card.created_at) + '</span><div class="recharge-card-actions"><button type="button" class="ghost" data-reveal-card="' + card.id + '" ' + disabled + '>👁 查看</button><button type="button" class="ghost" data-copy-card="' + card.id + '" ' + disabled + '>复制</button>' + legacyHint + '</div></article>';
+    }).join("")
+    : '<div class="empty-state">尚未生成充值卡</div>';
+}
+
+function renderNodes() {
+  $("#nodeList").innerHTML = state.nodes
+    .map((node) => '<article class="row-card node-admin-card"><header><strong>' + escapeHtml(node.name) + '</strong><span class="row-actions"><button data-edit-node="' + node.id + '" class="ghost">编辑</button><button data-delete-node="' + node.id + '" class="danger">删除</button></span></header><span class="meta">' + (node.mode === "managed" ? "托管" : "静态") + ' / 入站 ' + (node.inbound_id || 0) + ' / 倍率 ' + node.rate + ' / 标签：' + escapeHtml(formatTags(node.tags)) + '</span><span class="meta">状态：<b class="status ' + escapeHtml(node.status || "unknown") + '">' + nodeStatusText(node.status) + '</b> / 延迟 ' + (node.latency_ms == null ? "-" : escapeHtml(node.latency_ms)) + 'ms / 检测 ' + toDateTime(node.last_checked_at) + '</span><span class="meta">' + escapeHtml(String(node.source_url || "").slice(0, 150)) + '</span><form class="inline-form node-status-form" data-node-status-form="' + node.id + '"><label>状态<select name="status">' + nodeStatusOptions(node.status || "unknown") + '</select></label><label>延迟 ms<input name="latency_ms" type="number" min="0" step="1" value="' + (node.latency_ms == null ? "" : escapeHtml(node.latency_ms)) + '"></label><button type="submit" class="ghost">更新状态</button></form></article>')
+    .join("");
+}
+
+function renderCheckout() {
+  const plan = findPendingPlan();
+  const balance = Number(state.me?.balance_cents || 0);
+  if ($("#checkoutPlanName")) $("#checkoutPlanName").textContent = plan?.name || "未选择套餐";
+  if ($("#checkoutPlanPrice")) $("#checkoutPlanPrice").textContent = plan ? formatMoney(plan.price_cents) : "¥0.00";
+  if ($("#checkoutPlanQuota")) $("#checkoutPlanQuota").textContent = plan ? formatBytes(plan.quota_bytes) : "-";
+  if ($("#checkoutPlanDuration")) $("#checkoutPlanDuration").textContent = plan ? plan.duration_days + " 天" : "-";
+  if ($("#checkoutBalanceText")) $("#checkoutBalanceText").textContent = state.me ? formatMoney(balance) : "请先登录";
+  const button = $("#checkoutPurchaseBtn");
+  if (!button) return;
+  const disabledReason = !plan ? "请先选择套餐" : !state.me ? "请先登录" : state.me.role === "admin" ? "管理员不可购买" : state.me.status === "disabled" ? "账号已停用" : balance < Number(plan.price_cents || 0) ? "余额不足" : "";
+  button.disabled = Boolean(disabledReason);
+  button.textContent = disabledReason || "确认购买并开通";
+}
+
+function renderSuccess() {
+  if ($("#successPlanName")) $("#successPlanName").textContent = state.lastPurchase?.plan?.name ? "已开通：" + state.lastPurchase.plan.name : "套餐已开通";
+  if ($("#successMessage")) {
+    const message = state.lastPurchase ? provisioningNotice("开通结果", state.lastPurchase.provisioning, state.lastPurchase.errors) : "订阅链接与用量信息已经更新。";
+    $("#successMessage").textContent = message;
+  }
+}
+
+function renderNodeStatuses() {
+  const target = $("#nodeStatusList");
+  if (!target) return;
+  target.innerHTML = state.nodeStatuses.length
+    ? state.nodeStatuses.map((node) => '<article class="node-status-card"><header><strong>' + escapeHtml(node.name) + '</strong><span class="status ' + escapeHtml(node.status || "unknown") + '">' + nodeStatusText(node.status) + '</span></header><dl><div><dt>延迟</dt><dd>' + (node.latency_ms == null ? "-" : escapeHtml(node.latency_ms) + "ms") + '</dd></div><div><dt>倍率</dt><dd>' + escapeHtml(node.rate ?? "1") + 'x</dd></div><div><dt>标签/地区</dt><dd>' + escapeHtml(formatTags(node.tags)) + '</dd></div><div><dt>最近检测</dt><dd>' + toDateTime(node.last_checked_at) + '</dd></div></dl></article>').join("")
+    : '<div class="empty-state">当前暂无可展示节点。</div>';
+}
+
+function renderCheckin() {
+  const status = $("#checkinStatus");
+  const list = $("#checkinRecentList");
+  const button = $("[data-checkin]");
+  if (!status || !list || !button) return;
+  if (!state.me || state.me.role !== "user") {
+    status.textContent = "登录普通用户账号后可查看签到状态。";
+    button.disabled = true;
+    list.innerHTML = '<span class="meta">暂无签到记录</span>';
+    return;
+  }
+  const checkin = state.checkin;
+  if (!checkin) {
+    status.textContent = "正在读取签到状态…";
+    button.disabled = true;
+    list.innerHTML = '<span class="meta">暂无签到记录</span>';
+    return;
+  }
+  const settings = checkin.settings || {};
+  if (!checkin.enabled || !settings.enabled) {
+    status.textContent = "签到功能暂未开启。";
+    button.disabled = true;
+  } else if (!checkin.eligible) {
+    status.textContent = "仅开通有效套餐的用户可签到领取流量。";
+    button.disabled = true;
+  } else if (checkin.checked_in_today) {
+    status.textContent = "今日已签到" + (checkin.last_reward_bytes ? "，获得 " + formatBytes(checkin.last_reward_bytes) : "") + "。";
+    button.disabled = true;
+  } else {
+    status.textContent = settings.mode === "random" ? "今日可签到，奖励范围 " + settings.min_gb + "GB - " + settings.max_gb + "GB。" : "今日可签到，奖励 " + settings.fixed_gb + "GB。";
+    button.disabled = false;
+  }
+  list.innerHTML = (checkin.recent || []).length
+    ? checkin.recent.slice(0, 7).map((item) => '<div class="checkin-record"><span>' + escapeHtml(item.checkin_date) + '</span><strong>+' + formatBytes(item.reward_bytes) + '</strong></div>').join("")
+    : '<span class="meta">暂无签到记录</span>';
+}
+
+function renderTickets() {
+  const target = $("#ticketList");
+  if (!target) return;
+  if (state.me?.role !== "user") {
+    target.innerHTML = '<span class="meta">暂无工单</span>';
+    return;
+  }
+  target.innerHTML = state.tickets.length
+    ? state.tickets.map((ticket) => '<article class="ticket-card"><header><strong>#' + ticket.id + ' ' + escapeHtml(ticket.subject) + '</strong><span class="status ' + escapeHtml(ticket.status) + '">' + ticketStatusText(ticket.status) + '</span></header><p>' + escapeHtml(ticket.message) + '</p><small>创建 ' + toDateTime(ticket.created_at) + ' / 更新 ' + toDateTime(ticket.updated_at) + '</small><div class="ticket-replies">' + ticketRepliesHtml(ticket) + '</div></article>').join("")
+    : '<span class="meta">暂无工单</span>';
+}
+
+function renderAdminTickets() {
+  const target = $("#adminTicketList");
+  if (!target) return;
+  if (state.me?.role !== "admin") {
+    target.innerHTML = '<span class="meta">暂无工单</span>';
+    return;
+  }
+  target.innerHTML = state.adminTickets.length
+    ? state.adminTickets.map((ticket) => '<article class="ticket-card admin-ticket-card"><header><strong>#' + ticket.id + ' ' + escapeHtml(ticket.subject) + '</strong><span class="status ' + escapeHtml(ticket.status) + '">' + ticketStatusText(ticket.status) + '</span></header><p class="meta">' + escapeHtml(ticket.user_email || "未知用户") + ' / 回复 ' + (ticket.reply_count || 0) + ' / 更新 ' + toDateTime(ticket.updated_at) + '</p><p>' + escapeHtml(ticket.message) + '</p><div class="ticket-replies">' + ticketRepliesHtml(ticket) + '</div><form class="inline-form admin-ticket-reply-form" data-admin-ticket-reply-form="' + ticket.id + '"><label>回复<textarea name="message" rows="3" maxlength="2000" required></textarea></label><label>状态<select name="status"><option value="open" ' + (ticket.status === "open" ? "selected" : "") + '>处理中</option><option value="pending" ' + (ticket.status === "pending" ? "selected" : "") + '>等待反馈</option><option value="closed" ' + (ticket.status === "closed" ? "selected" : "") + '>已关闭</option></select></label><button type="submit">回复</button></form></article>').join("")
+    : '<span class="meta">暂无工单</span>';
+}
+
+function renderCheckinSettings() {
+  const form = $("#checkinSettingsForm");
+  if (!form) return;
+  const settings = state.checkinSettings || {};
+  form.elements.enabled.checked = Boolean(settings.enabled);
+  form.elements.mode.value = settings.mode || "fixed";
+  form.elements.fixed_gb.value = settings.fixed_gb ?? 1;
+  form.elements.min_gb.value = settings.min_gb ?? 0.5;
+  form.elements.max_gb.value = settings.max_gb ?? 1;
+  form.elements.active_plan_only.checked = settings.active_plan_only !== false;
+}
+
+async function revealRechargeCard(id) {
+  if (state.revealedCards[id]) return state.revealedCards[id];
+  const data = await api("/api/admin/recharge-cards/reveal", {
+    method: "POST",
+    body: JSON.stringify({ id }),
+    loadingLabel: "正在解密充值卡",
+  });
+  state.revealedCards[id] = data.code;
+  renderRechargeCards();
+  return data.code;
+}
+
 async function requestPurchase(planId) {
   state.pendingPlanId = Number(planId);
   if (!state.me) {
     openAuth("login");
     return;
   }
-  await submitPurchase();
+  if (state.me.role === "admin") throw new Error("管理员账号不能购买套餐");
+  setView("checkout");
 }
 
 async function submitPurchase() {
   if (!state.pendingPlanId) return;
-  const plan = state.plans.find((item) => Number(item.id) === Number(state.pendingPlanId));
+  const plan = findPendingPlan();
   if (!plan) throw new Error("套餐不存在");
-  if (!window.confirm(`确认使用余额 ${formatMoney(plan.price_cents)} 购买「${plan.name}」吗？购买后立即生效。`)) {
-    state.pendingPlanId = null;
-    return;
-  }
   const data = await api("/api/purchases", {
     method: "POST",
     body: JSON.stringify({ plan_id: state.pendingPlanId }),
     loadingLabel: "正在购买并开通套餐",
   });
+  state.lastPurchase = { plan, provisioning: data.provisioning, errors: data.errors };
   state.pendingPlanId = null;
   state.me = data.user;
-  await refreshBalanceTransactions();
+  if (state.me?.role === "user") {
+    await refreshBalanceTransactions();
+    await refreshCheckin();
+  }
   renderAuth();
   closeAuth(false);
-  setView("account");
+  setView("success");
   showNotice(provisioningNotice("套餐购买成功", data.provisioning, data.errors));
 }
 
@@ -869,7 +1139,7 @@ async function finishAuthentication(user) {
   renderAuth();
   if (state.me?.role === "admin") await refreshAdmin();
   closeAuth(false);
-  if (state.pendingPlanId && state.me?.role === "user") await submitPurchase();
+  if (state.pendingPlanId && state.me?.role === "user") setView("checkout");
   else setView(state.me?.role === "admin" ? "admin" : "account");
 }
 
@@ -910,6 +1180,41 @@ async function handleDocumentClick(event) {
   const applyButton = target.closest("[data-apply-plan]");
   if (applyButton) {
     await requestPurchase(applyButton.dataset.applyPlan);
+    return;
+  }
+
+  if (target.closest("#checkoutPurchaseBtn")) {
+    await submitPurchase();
+    return;
+  }
+
+  if (target.closest("[data-refresh-node-status]")) {
+    await refreshNodeStatuses();
+    showNotice("节点状态已刷新");
+    return;
+  }
+
+  if (target.closest("[data-checkin]")) {
+    const data = await api("/api/checkin", { method: "POST", body: "{}", loadingLabel: "正在签到" });
+    state.me = data.user;
+    state.checkin = data.checkin;
+    renderAuth();
+    showNotice("签到成功，获得 " + formatBytes(data.reward_bytes) + " 流量");
+    return;
+  }
+
+  const revealCard = target.closest("[data-reveal-card]");
+  if (revealCard) {
+    await revealRechargeCard(revealCard.dataset.revealCard);
+    showNotice("完整卡密已显示");
+    return;
+  }
+
+  const copyCard = target.closest("[data-copy-card]");
+  if (copyCard) {
+    const code = await revealRechargeCard(copyCard.dataset.copyCard);
+    await copyPlainText(code);
+    showNotice("充值卡密已复制");
     return;
   }
 
@@ -1060,11 +1365,6 @@ function bindEvents() {
     if (state.me) setView("profile");
     else openAuth("login");
   });
-  $("#refreshBtn").addEventListener("click", async () => {
-    await refreshPublic();
-    await refreshMe();
-    showNotice("已刷新");
-  });
   $("#logoutBtn").addEventListener("click", async () => {
     await api("/api/logout", { method: "POST", body: "{}" });
     state.me = null;
@@ -1072,6 +1372,13 @@ function bindEvents() {
     state.panels = [];
     state.nodes = [];
     state.transactions = [];
+    state.checkin = null;
+    state.tickets = [];
+    state.adminTickets = [];
+    state.checkinSettings = {};
+    state.revealedCards = {};
+    state.lastPurchase = null;
+    state.rechargeCards = [];
     state.pendingPlanId = null;
     state.profileAvatar = "";
     $("#loginForm").reset();
@@ -1132,6 +1439,13 @@ function bindEvents() {
     showNotice("登录成功");
   }));
 
+  $("#ticketForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
+    await api("/api/tickets", { method: "POST", body: JSON.stringify(formData(form)), loadingLabel: "正在提交工单" });
+    form.reset();
+    await refreshTickets();
+    showNotice("工单已提交");
+  }));
+
   $("#rechargeForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
     const data = await api("/api/recharge", { method: "POST", body: JSON.stringify(formData(form)), loadingLabel: "正在兑换充值卡" });
     state.me = data.user;
@@ -1187,6 +1501,13 @@ function bindEvents() {
     state.settings = data.settings || {};
     renderSettings();
     showNotice("设置已保存");
+  }));
+
+  $("#checkinSettingsForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
+    const data = await api("/api/admin/checkin/settings", { method: "POST", body: JSON.stringify(formData(form)), loadingLabel: "正在保存签到配置" });
+    state.checkinSettings = data.settings || {};
+    renderCheckinSettings();
+    showNotice("签到配置已保存");
   }));
 
   $("#usageForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {

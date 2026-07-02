@@ -44,6 +44,8 @@ class XuiManagerApp:
         try:
             if method == "GET" and path == "/api/plans":
                 return self.json_response({"plans": self.db.list_plans(enabled_only=True)})
+            if method == "GET" and path == "/api/nodes/status":
+                return self.json_response({"nodes": [public_node_status(node) for node in self.db.list_nodes(enabled_only=True)]})
             if method == "POST" and path == "/api/register":
                 user = self.db.register_user(payload["email"], payload["password"])
                 session = self.db.create_session(user["id"])
@@ -72,6 +74,40 @@ class XuiManagerApp:
                     return guard
                 updated = self.db.update_password(user["id"], payload["current_password"], payload["new_password"])
                 return self.json_response({"user": self.user_summary(updated, headers)})
+            if method == "GET" and path == "/api/checkin":
+                user = self.user_from_headers(headers)
+                if not user or user.get("role") != "user":
+                    return self.json_response({"error": "请先登录"}, 401)
+                return self.json_response({"checkin": self.db.checkin_status(user["id"])})
+            if method == "POST" and path == "/api/checkin":
+                user = self.user_from_headers(headers)
+                if not user or user.get("role") != "user":
+                    return self.json_response({"error": "请先登录"}, 401)
+                guard = self.require_mutation_headers(headers)
+                if guard:
+                    return guard
+                result = self.db.perform_checkin(user["id"])
+                return self.json_response(
+                    {
+                        "reward_bytes": result["record"]["reward_bytes"],
+                        "checkin": result["checkin"],
+                        "user": self.user_summary(result["user"], headers),
+                    }
+                )
+            if method == "GET" and path == "/api/tickets":
+                user = self.user_from_headers(headers)
+                if not user or user.get("role") != "user":
+                    return self.json_response({"error": "请先登录"}, 401)
+                return self.json_response({"tickets": self.db.list_user_tickets(user["id"])})
+            if method == "POST" and path == "/api/tickets":
+                user = self.user_from_headers(headers)
+                if not user or user.get("role") != "user":
+                    return self.json_response({"error": "请先登录"}, 401)
+                guard = self.require_mutation_headers(headers)
+                if guard:
+                    return guard
+                ticket = self.db.create_ticket(user["id"], payload["subject"], payload["message"])
+                return self.json_response({"ticket": ticket})
             if method == "GET" and path == "/api/balance/transactions":
                 user = self.user_from_headers(headers)
                 if not user or user.get("role") != "user":
@@ -134,10 +170,15 @@ class XuiManagerApp:
             return self.json_response({"cards": self.db.list_recharge_cards()})
         if method == "POST" and path == "/api/admin/recharge-cards":
             admin = self.user_from_headers(headers)
+            secret = recharge_card_secret()
+            if not secret:
+                raise ValueError("RECHARGE_CARD_SECRET 未配置，无法生成可查看完整卡密的新充值卡")
             cards = self.db.create_recharge_cards(
-                yuan_to_cents(payload["amount_yuan"]), int(payload.get("count", 1)), admin["id"]
+                yuan_to_cents(payload["amount_yuan"]), int(payload.get("count", 1)), admin["id"], secret
             )
             return self.json_response({"cards": cards})
+        if method == "POST" and path == "/api/admin/recharge-cards/reveal":
+            return self.json_response(self.db.reveal_recharge_card(int(payload["id"]), recharge_card_secret()))
         if method == "POST" and path == "/api/admin/users/approve":
             existing = self.db.get_user(int(payload["user_id"]))
             if not existing:
@@ -274,6 +315,9 @@ class XuiManagerApp:
         if method == "POST" and path == "/api/admin/nodes/delete":
             self.db.delete_node(int(payload["id"]))
             return self.json_response({"deleted": True})
+        if method == "POST" and path == "/api/admin/nodes/status":
+            node = self.db.update_node_status(int(payload["id"]), payload.get("status", "unknown"), payload.get("latency_ms"))
+            return self.json_response({"node": node})
         if method == "POST" and path == "/api/admin/usage":
             upload = bytes_from_gb(float(payload.get("upload_gb") or 0))
             download = bytes_from_gb(float(payload.get("download_gb") or 0))
@@ -290,6 +334,21 @@ class XuiManagerApp:
                     value = str(value or "").strip()
                 self.db.set_setting(str(key), value)
             return self.json_response({"settings": self.admin_settings()})
+        if method == "GET" and path == "/api/admin/checkin/settings":
+            return self.json_response({"settings": self.db.checkin_settings()})
+        if method == "POST" and path == "/api/admin/checkin/settings":
+            return self.json_response({"settings": self.db.save_checkin_settings(payload)})
+        if method == "GET" and path == "/api/admin/tickets":
+            return self.json_response({"tickets": self.db.list_admin_tickets()})
+        if method == "POST" and path == "/api/admin/tickets/reply":
+            admin = self.user_from_headers(headers)
+            ticket = self.db.reply_ticket(
+                int(payload["ticket_id"]),
+                admin["id"] if admin else None,
+                payload["message"],
+                payload.get("status", "open"),
+            )
+            return self.json_response({"ticket": ticket})
         return self.json_response({"error": "Not found"}, 404)
 
     def admin_settings(self) -> dict[str, Any]:
@@ -389,6 +448,19 @@ def public_panel(panel: dict[str, Any]) -> dict[str, Any]:
     } | {"has_password": bool(panel.get("password"))}
 
 
+def public_node_status(node: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": node["id"],
+        "name": node["name"],
+        "rate": node.get("rate", 1),
+        "tags": node.get("tags", []),
+        "enabled": bool(node.get("enabled", False)),
+        "status": node.get("status") or "unknown",
+        "latency_ms": node.get("latency_ms"),
+        "last_checked_at": int(node.get("last_checked_at") or 0),
+    }
+
+
 def public_inbound(inbound: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": int(inbound.get("id") or 0),
@@ -453,6 +525,10 @@ def subscription_urls(token: str, headers: dict[str, str]) -> dict[str, str]:
         "base64": f"{base}/sub/base64/{token}",
         "singbox": f"{base}/sub/singbox/{token}",
     }
+
+
+def recharge_card_secret() -> str:
+    return os.environ.get("RECHARGE_CARD_SECRET", "").strip()
 
 
 def create_app(db_path: str | Path) -> XuiManagerApp:

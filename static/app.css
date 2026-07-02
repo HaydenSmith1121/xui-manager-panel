@@ -5,7 +5,8 @@
   --muted: #6e83a1;
   --blue: #2168ff;
   --blue-dark: #1553d8;
-  --cyan: #43d6ff;
+  --accent-cyan: #49d8ff;
+  --cyan: var(--accent-cyan);
   --cloud: #f4f9ff;
   --surface: #ffffff;
   --line: #dce8f7;
@@ -112,6 +113,28 @@ button.danger {
 
 .app-shell {
   min-height: 100vh;
+}
+
+.mobile-shell {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 14% 8%, rgba(73, 216, 255, 0.22), transparent 28%),
+    radial-gradient(circle at 88% 18%, rgba(33, 104, 255, 0.16), transparent 30%),
+    linear-gradient(145deg, #f7fbff 0%, #edf6ff 48%, #f9fcff 100%);
+}
+
+.mobile-shell::before {
+  position: fixed;
+  inset: 18px 18px auto auto;
+  z-index: -1;
+  width: 180px;
+  height: 180px;
+  border-radius: 46px;
+  background: linear-gradient(135deg, rgba(7, 24, 51, 0.12), rgba(73, 216, 255, 0.22));
+  filter: blur(10px);
+  content: "";
+  transform: rotate(14deg);
 }
 
 .sidebar {
@@ -1613,6 +1636,447 @@ dialog.dialog-fallback-open {
   50% { height: 26px; opacity: 1; }
 }
 
+.checkout-workspace,
+.node-status-workspace,
+.guide-workspace,
+.tickets-workspace,
+.recharge-cards-workspace {
+  min-height: 100vh;
+  padding: 48px clamp(22px, 5vw, 72px) 78px;
+  background:
+    radial-gradient(circle at 9% 8%, rgba(73, 216, 255, 0.16), transparent 28%),
+    linear-gradient(180deg, rgba(247, 251, 255, 0.96), rgba(240, 247, 255, 0.96));
+}
+
+.checkout-layout,
+.tickets-layout,
+.recharge-card-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.checkout-summary,
+.checkout-confirm,
+.success-panel,
+.node-status-card,
+.guide-card,
+.ticket-card,
+.recharge-card {
+  border-color: rgba(195, 218, 244, 0.94);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 24px 70px rgba(16, 66, 132, 0.11);
+}
+
+.checkout-summary {
+  position: relative;
+  overflow: hidden;
+  color: #fff;
+  background:
+    radial-gradient(circle at 84% 8%, rgba(73, 216, 255, 0.34), transparent 30%),
+    linear-gradient(145deg, #071833, #1553d8 62%, #19a7dc);
+}
+
+.checkout-summary::after {
+  position: absolute;
+  right: -52px;
+  bottom: -64px;
+  width: 190px;
+  height: 190px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 58px;
+  content: "";
+  transform: rotate(20deg);
+}
+
+.checkout-label {
+  display: inline-flex;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 6px 11px;
+  color: #d8f7ff;
+  background: rgba(255, 255, 255, 0.13);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.checkout-summary h2 {
+  position: relative;
+  z-index: 1;
+  margin: 18px 0 0;
+  font-size: clamp(30px, 4vw, 48px);
+  letter-spacing: -0.05em;
+}
+
+.checkout-price {
+  position: relative;
+  z-index: 1;
+  margin-top: 16px;
+  font-size: clamp(34px, 5vw, 58px);
+  font-weight: 950;
+  letter-spacing: -0.06em;
+}
+
+.checkout-facts {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 12px;
+  margin: 28px 0 0;
+}
+
+.checkout-facts div {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+  padding-top: 12px;
+}
+
+.checkout-facts dt,
+.checkout-facts dd {
+  margin: 0;
+}
+
+.checkout-facts dt {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.checkout-facts dd {
+  color: #fff;
+  font-weight: 900;
+}
+
+.checkout-confirm {
+  min-height: 100%;
+}
+
+.checkout-confirm button {
+  width: 100%;
+  min-height: 50px;
+  margin-top: 10px;
+}
+
+.success-workspace {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 44px clamp(20px, 5vw, 72px) 84px;
+  background:
+    radial-gradient(circle at 50% 22%, rgba(73, 216, 255, 0.22), transparent 24%),
+    linear-gradient(180deg, #f8fbff, #edf6ff);
+}
+
+.success-panel {
+  width: min(100%, 540px);
+  border: 1px solid var(--line);
+  border-radius: 34px;
+  padding: clamp(28px, 5vw, 48px);
+  text-align: center;
+}
+
+.success-mark {
+  display: inline-grid;
+  width: 76px;
+  height: 76px;
+  place-items: center;
+  border-radius: 26px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--blue), var(--accent-cyan));
+  box-shadow: 0 18px 45px rgba(33, 104, 255, 0.26);
+  font-size: 34px;
+  font-weight: 950;
+}
+
+.success-panel h1 {
+  margin: 16px 0 8px;
+  font-size: clamp(36px, 5vw, 58px);
+  letter-spacing: -0.06em;
+}
+
+.success-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 24px;
+  flex-wrap: wrap;
+}
+
+.node-status-list,
+.guide-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.node-status-card,
+.guide-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 26px;
+  padding: 22px;
+}
+
+.node-status-card::before,
+.guide-card::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 4px;
+  background: linear-gradient(90deg, var(--blue), var(--accent-cyan));
+  content: "";
+}
+
+.node-status-card header,
+.ticket-card header,
+.recharge-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.node-status-card h2,
+.guide-card h2,
+.ticket-card h3 {
+  margin: 0;
+  letter-spacing: -0.03em;
+}
+
+.node-status-card dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 0 0;
+}
+
+.node-status-card dl div,
+.checkin-record,
+.ticket-reply {
+  border-radius: 16px;
+  padding: 12px;
+  background: rgba(237, 245, 255, 0.72);
+}
+
+.node-status-card dt,
+.node-status-card dd {
+  margin: 0;
+}
+
+.node-status-card dt {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.node-status-card dd {
+  margin-top: 4px;
+  font-size: 16px;
+  font-weight: 920;
+}
+
+.guide-card {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-height: 210px;
+}
+
+.guide-card > span {
+  display: inline-grid;
+  width: fit-content;
+  min-width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 16px;
+  color: var(--blue-dark);
+  background: linear-gradient(135deg, #e7f3ff, #dffbff);
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.guide-card p,
+.ticket-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.tickets-layout {
+  grid-template-columns: minmax(260px, 0.85fr) minmax(0, 1.15fr);
+}
+
+.ticket-form,
+.ticket-list-panel {
+  align-self: start;
+}
+
+.ticket-list,
+.checkin-recent-list {
+  display: grid;
+  gap: 12px;
+}
+
+.ticket-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 18px;
+}
+
+.ticket-card .meta,
+.ticket-reply .meta {
+  font-size: 12px;
+}
+
+.ticket-replies {
+  display: grid;
+  gap: 8px;
+}
+
+.ticket-reply {
+  display: grid;
+  gap: 4px;
+}
+
+.ticket-reply strong {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.checkin-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+.checkin-panel::after {
+  position: absolute;
+  top: -40px;
+  right: -42px;
+  width: 120px;
+  height: 120px;
+  border-radius: 36px;
+  background: linear-gradient(135deg, rgba(33, 104, 255, 0.12), rgba(73, 216, 255, 0.2));
+  content: "";
+  transform: rotate(18deg);
+}
+
+.checkin-status-card {
+  position: relative;
+  z-index: 1;
+  border: 1px solid rgba(195, 218, 244, 0.92);
+  border-radius: 20px;
+  padding: 16px;
+  background: linear-gradient(135deg, rgba(237, 245, 255, 0.92), rgba(225, 250, 255, 0.72));
+  color: var(--ink-soft);
+  font-weight: 800;
+  line-height: 1.7;
+}
+
+.checkin-panel [data-checkin] {
+  position: relative;
+  z-index: 1;
+}
+
+.checkin-recent-list {
+  position: relative;
+  z-index: 1;
+}
+
+.checkin-record {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.recharge-card-layout {
+  grid-template-columns: minmax(280px, 0.72fr) minmax(0, 1.28fr);
+}
+
+.recharge-card {
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 16px;
+}
+
+.recharge-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.recharge-card-actions .ghost {
+  min-height: 34px;
+  padding-inline: 12px;
+  border-radius: 11px;
+  font-size: 12px;
+}
+
+.card-code {
+  display: inline-block;
+  max-width: min(100%, 420px);
+  color: var(--ink);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  overflow-wrap: anywhere;
+}
+
+.generated-codes {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.generated-codes code {
+  display: block;
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: #edf5ff;
+  color: var(--blue-dark);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.node-status-form,
+.checkin-settings-form {
+  align-items: end;
+}
+
+.node-status-form select,
+.node-status-form input {
+  min-height: 40px;
+}
+
+.status.online,
+.status.open {
+  color: #09624b;
+  background: #d9f8ed;
+}
+
+.status.offline,
+.status.closed {
+  color: #9f2d2d;
+  background: #ffe2e2;
+}
+
+.status.degraded,
+.status.maintenance {
+  color: #835500;
+  background: #fff0bf;
+}
+
+.status.unknown {
+  color: #31527b;
+  background: #e8f2ff;
+}
+
 @media (max-width: 1180px) {
   .hero {
     grid-template-columns: 1.1fr 0.9fr;
@@ -1727,6 +2191,46 @@ dialog.dialog-fallback-open {
   .mobile-nav button.active {
     color: var(--blue);
     background: #edf5ff;
+  }
+
+  .checkout-workspace,
+  .node-status-workspace,
+  .guide-workspace,
+  .tickets-workspace,
+  .recharge-cards-workspace {
+    padding: 28px 16px calc(96px + env(safe-area-inset-bottom));
+  }
+
+  .checkout-layout,
+  .tickets-layout,
+  .recharge-card-layout,
+  .node-status-form,
+  .checkin-settings-form {
+    grid-template-columns: 1fr;
+  }
+
+  .node-status-list,
+  .guide-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .node-status-card dl {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .success-workspace {
+    padding: 28px 16px calc(96px + env(safe-area-inset-bottom));
+  }
+
+  .success-actions,
+  .checkout-confirm button,
+  .recharge-card-actions {
+    width: 100%;
+  }
+
+  .success-actions button,
+  .recharge-card-actions button {
+    flex: 1 1 120px;
   }
 
   .hero {

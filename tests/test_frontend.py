@@ -147,11 +147,9 @@ class FrontendTests(unittest.TestCase):
         index_html = (root / "static" / "index.html").read_text(encoding="utf-8")
 
         self.assertIn('id="logoutBtn"', index_html)
-        session_start = index_html.index('<div class="session">')
-        session_block = index_html[session_start:index_html.index('</aside>', session_start)]
+        self.assertNotIn('<div class="session">', index_html)
         profile_start = index_html.index('id="profileView"')
         profile_block = index_html[profile_start:index_html.index('id="adminView"', profile_start)]
-        self.assertNotIn('id="logoutBtn"', session_block)
         self.assertIn('id="logoutBtn"', profile_block)
         self.assertIn('api("/api/logout"', app_js)
         self.assertIn("state.me = null", app_js)
@@ -293,7 +291,8 @@ class FrontendTests(unittest.TestCase):
         self.assertIn("data-copy-profile-sub", app_js)
         self.assertIn("/api/me/password", app_js)
         self.assertIn("礼品卡兑换成功，余额已到账", app_js)
-        self.assertIn('$("#sessionEmail").textContent = loggedIn ? state.me.email : "游客"', app_js)
+        self.assertIn("profileEntryLabel", app_js)
+        self.assertNotIn('$("#sessionEmail")', app_js)
         self.assertIn(".profile-entry", app_css)
         self.assertIn(".profile-sections", app_css)
         self.assertIn(".gift-card-panel", app_css)
@@ -316,9 +315,19 @@ class FrontendTests(unittest.TestCase):
         app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
         index_html = (root / "static" / "index.html").read_text(encoding="utf-8")
 
+        self.assertIn('id="rechargeCardsView"', index_html)
         self.assertIn('id="rechargeCardForm"', index_html)
         self.assertIn('id="rechargeCardList"', index_html)
+        recharge_start = index_html.index('id="rechargeCardsView"')
+        recharge_block = index_html[recharge_start:index_html.index('id="nodesView"', recharge_start)]
+        admin_start = index_html.index('id="adminView"')
+        admin_block = index_html[admin_start:index_html.index('id="rechargeCardsView"', admin_start)]
+        self.assertIn('id="rechargeCardForm"', recharge_block)
+        self.assertNotIn('id="rechargeCardForm"', admin_block)
         self.assertIn('/api/admin/recharge-cards', app_js)
+        self.assertIn('/api/admin/recharge-cards/reveal', app_js)
+        self.assertIn("data-reveal-card", app_js)
+        self.assertIn("data-copy-card", app_js)
         self.assertIn("generatedCardCodes", app_js)
 
 

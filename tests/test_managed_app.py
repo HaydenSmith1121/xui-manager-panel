@@ -1,7 +1,9 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from xui_manager.app import XuiManagerApp
 
@@ -53,6 +55,9 @@ class ManagedAppTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
+        self.secret_patch = patch.dict(os.environ, {"RECHARGE_CARD_SECRET": "managed-test-secret"})
+        self.secret_patch.start()
+        self.addCleanup(self.secret_patch.stop)
         self.app = XuiManagerApp(Path(self.tmp.name) / "app.db", client_factory=FakePanelClient)
         self.admin = self.app.db.seed_admin("admin@example.com", "password123")
         login = self.app.handle_json(

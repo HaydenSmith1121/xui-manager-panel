@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="/app.css">
   </head>
   <body>
-    <div class="app-shell">
+    <div class="app-shell mobile-shell">
       <aside class="sidebar" aria-label="主导航">
         <button class="brand brand-button" type="button" data-view="home" aria-label="返回首页">
           <span class="brand-mark" aria-hidden="true">
@@ -21,21 +21,16 @@
         <nav class="nav">
           <button class="nav-item active" type="button" data-view="home"><span>首页</span><small>服务入口</small></button>
           <button class="nav-item" type="button" data-view="storefront"><span>商城</span><small>实时套餐</small></button>
+          <button class="nav-item" type="button" data-view="nodeStatus"><span>节点状态</span><small>延迟与倍率</small></button>
+          <button class="nav-item" type="button" data-view="guide"><span>使用教程</span><small>客户端导入</small></button>
           <button class="nav-item user-only hidden" type="button" data-view="account"><span>我的订阅</span><small>用量与链接</small></button>
+          <button class="nav-item user-only hidden" type="button" data-view="tickets"><span>工单帮助</span><small>问题跟进</small></button>
           <button class="nav-item admin-only hidden" type="button" data-view="admin"><span>用户</span><small>审核与状态</small></button>
+          <button class="nav-item admin-only hidden" type="button" data-view="tickets"><span>工单</span><small>回复与关闭</small></button>
+          <button class="nav-item admin-only hidden" type="button" data-view="rechargeCards"><span>充值卡</span><small>生成与复制</small></button>
           <button class="nav-item admin-only hidden" type="button" data-view="nodes"><span>节点</span><small>X-UI 接入</small></button>
           <button class="nav-item admin-only hidden" type="button" data-view="settings"><span>配置</span><small>套餐与面板</small></button>
         </nav>
-
-        <div class="session">
-          <span class="session-label">登录状态</span>
-          <strong id="sessionEmail">游客</strong>
-          <div class="session-actions">
-            <button id="loginBtn" type="button" data-open-auth="login">登录</button>
-            <button id="registerBtn" type="button" class="ghost" data-open-auth="register">注册</button>
-            <button id="refreshBtn" type="button" class="ghost hidden">刷新</button>
-          </div>
-        </div>
       </aside>
 
       <main class="main-shell">
@@ -104,6 +99,63 @@
             <strong>余额购买，即时开通。</strong>
             <p>登录后可充值、购买套餐，并获取多端订阅链接。</p>
             <button type="button" class="ghost" data-open-auth="register">创建账号</button>
+          </div>
+        </section>
+
+        <section id="checkoutView" class="view checkout-workspace hidden">
+          <div class="page-heading">
+            <div><p class="eyebrow">CHECKOUT</p><h1>确认购买</h1><p>继续沿用余额购买流程，不接入新的支付网关。</p></div>
+            <button type="button" class="ghost" data-view="storefront">返回商城</button>
+          </div>
+          <div class="checkout-layout">
+            <section class="panel checkout-summary">
+              <span class="checkout-label">所选套餐</span>
+              <h2 id="checkoutPlanName">-</h2>
+              <div class="checkout-price" id="checkoutPlanPrice">¥0.00</div>
+              <dl class="checkout-facts">
+                <div><dt>套餐流量</dt><dd id="checkoutPlanQuota">-</dd></div>
+                <div><dt>有效天数</dt><dd id="checkoutPlanDuration">-</dd></div>
+                <div><dt>账户余额</dt><dd id="checkoutBalanceText">-</dd></div>
+              </dl>
+            </section>
+            <section class="panel checkout-confirm">
+              <div class="form-intro"><h2>余额扣款开通</h2><p>点击确认后将从当前余额扣款，并立即调用原套餐开通流程。</p></div>
+              <button id="checkoutPurchaseBtn" type="button">确认购买并开通</button>
+              <button type="button" class="ghost" data-view="account">查看我的订阅</button>
+              <p class="form-note">余额不足时请先在个人中心或订阅页使用充值卡充值。</p>
+            </section>
+          </div>
+        </section>
+
+        <section id="successView" class="view success-workspace hidden">
+          <div class="success-panel">
+            <span class="success-mark" aria-hidden="true">✓</span>
+            <p class="eyebrow">PURCHASE COMPLETE</p>
+            <h1>购买成功</h1>
+            <p id="successPlanName">套餐已开通</p>
+            <p id="successMessage" class="meta">订阅链接与用量信息已经更新。</p>
+            <div class="success-actions">
+              <button type="button" data-view="account">查看订阅</button>
+              <button type="button" class="ghost" data-view="guide">查看教程</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="nodeStatusView" class="view node-status-workspace hidden">
+          <div class="page-heading">
+            <div><p class="eyebrow">NODE STATUS</p><h1>可用节点</h1><p>展示当前已启用节点的可用状态、延迟和倍率。</p></div>
+            <button type="button" class="ghost" data-refresh-node-status>刷新状态</button>
+          </div>
+          <div id="nodeStatusList" class="node-status-list" aria-live="polite"></div>
+        </section>
+
+        <section id="guideView" class="view guide-workspace hidden">
+          <div class="page-heading"><div><p class="eyebrow">GUIDE</p><h1>使用教程</h1><p>先复制订阅链接，再按客户端选择导入方式。</p></div></div>
+          <div class="guide-grid">
+            <article class="panel guide-card"><span>01</span><h2>复制订阅</h2><p>开通套餐后进入“我的订阅”或“个人中心”，复制 Clash、Base64 或 sing-box 订阅链接。</p></article>
+            <article class="panel guide-card"><span>02</span><h2>导入客户端</h2><p>Clash Verge / Mihomo 推荐使用 Clash 链接；Shadowrocket、v2rayNG、Hiddify 推荐使用通用 Base64。</p></article>
+            <article class="panel guide-card"><span>03</span><h2>检查节点</h2><p>连接前可先查看节点状态页，确认节点可用、延迟正常，并了解套餐倍率。</p></article>
+            <article class="panel guide-card"><span>FAQ</span><h2>常见问题</h2><p>余额不足请先充值；订阅导入失败时复制另一种格式；账号异常可在工单页提交问题。</p></article>
           </div>
         </section>
 
@@ -191,6 +243,13 @@
               <button id="logoutBtn" type="button" class="ghost danger hidden">退出登录</button>
             </section>
 
+            <section id="checkinPanel" class="panel profile-panel checkin-panel">
+              <div class="form-intro"><h2>每日签到</h2><p>仅开通有效套餐的用户可领取每日流量。</p></div>
+              <div id="checkinStatus" class="checkin-status-card">正在读取签到状态…</div>
+              <button type="button" data-checkin>立即签到</button>
+              <div id="checkinRecentList" class="checkin-recent-list"><span class="meta">暂无签到记录</span></div>
+            </section>
+
             <form id="profileGiftCardForm" class="panel profile-panel gift-card-panel">
               <div class="form-intro"><h2>礼品卡兑换</h2><p>输入礼品卡卡密，兑换后余额会立即入账。</p></div>
               <div class="gift-card-balance"><span>当前余额</span><strong id="profileGiftCardBalance">¥0.00</strong></div>
@@ -254,16 +313,6 @@
           </div>
           <div id="userCardList" class="user-card-list"></div>
           </div>
-          <div class="panel recharge-admin-panel">
-            <div class="form-intro"><h2>一次性充值卡</h2><p>卡密仅在生成后完整展示一次，请立即保存。</p></div>
-            <form id="rechargeCardForm" class="inline-form">
-              <label>面额（元）<input name="amount_yuan" type="number" min="0.01" step="0.01" required></label>
-              <label>数量<input name="count" type="number" min="1" max="100" value="1" required></label>
-              <button type="submit">生成充值卡</button>
-            </form>
-            <pre id="generatedCardCodes" class="generated-codes hidden"></pre>
-            <div id="rechargeCardList" class="row-list compact-list"></div>
-          </div>
           <form id="usageForm" class="panel compact-form">
             <div class="form-intro"><h2>手动录入用量</h2><p>仅用于需要人工校正的静态节点。</p></div>
             <label>用户<select name="user_id" id="usageUser"></select></label>
@@ -272,6 +321,52 @@
             <label>下载 GB<input name="download_gb" type="number" min="0" step="0.01" value="0"></label>
             <button type="submit">保存用量</button>
           </form>
+        </section>
+
+        <section id="ticketsView" class="view tickets-workspace hidden">
+          <div class="page-heading">
+            <div><p class="eyebrow">SUPPORT</p><h1>工单帮助</h1><p>提交节点、充值、订阅相关问题，管理员可在后台回复并关闭。</p></div>
+            <button type="button" class="ghost" data-view="guide">查看教程</button>
+          </div>
+          <div class="tickets-layout">
+            <form id="ticketForm" class="panel ticket-form user-only hidden">
+              <div class="form-intro"><h2>新建工单</h2><p>请描述问题、设备和大致出现时间。</p></div>
+              <label>标题<input name="subject" maxlength="120" placeholder="例如：香港 A 节点不可用" required></label>
+              <label>问题描述<textarea name="message" rows="6" maxlength="2000" placeholder="请尽量提供客户端、节点名、报错截图文字等信息" required></textarea></label>
+              <button type="submit">提交工单</button>
+            </form>
+            <section class="panel ticket-list-panel user-only hidden">
+              <div class="form-intro"><h2>我的工单</h2><p>查看自己的工单状态和管理员回复。</p></div>
+              <div id="ticketList" class="ticket-list"><span class="meta">暂无工单</span></div>
+            </section>
+            <section class="panel ticket-list-panel admin-only hidden">
+              <div class="form-intro"><h2>后台工单</h2><p>管理员查看全部工单、回复并关闭。</p></div>
+              <div id="adminTicketList" class="ticket-list"><span class="meta">暂无工单</span></div>
+            </section>
+          </div>
+        </section>
+
+        <section id="rechargeCardsView" class="view admin-workspace recharge-cards-workspace hidden">
+          <div class="page-heading">
+            <div><p class="eyebrow">RECHARGE CARDS</p><h1>充值卡管理</h1><p>独立生成、脱敏查看、按需揭示完整卡密并复制。</p></div>
+            <button type="button" class="ghost" data-view="admin">返回用户管理</button>
+          </div>
+          <div class="recharge-card-layout">
+            <div class="panel recharge-admin-panel">
+              <div class="form-intro"><h2>生成充值卡</h2><p>新卡会加密保存完整卡密，列表默认脱敏展示。</p></div>
+              <form id="rechargeCardForm" class="inline-form">
+                <label>面额（元）<input name="amount_yuan" type="number" min="0.01" step="0.01" required></label>
+                <label>数量<input name="count" type="number" min="1" max="100" value="1" required></label>
+                <button type="submit">生成充值卡</button>
+              </form>
+              <pre id="generatedCardCodes" class="generated-codes hidden"></pre>
+              <p class="form-note">如果未配置 RECHARGE_CARD_SECRET，后端会拒绝生成可查看完整卡密的新卡。</p>
+            </div>
+            <section class="panel recharge-card-list-panel">
+              <div class="form-intro"><h2>充值卡列表</h2><p>旧卡无法恢复完整卡密；新卡可用小眼睛查看并一键复制。</p></div>
+              <div id="rechargeCardList" class="row-list compact-list"></div>
+            </section>
+          </div>
         </section>
 
         <section id="nodesView" class="view admin-workspace hidden">
@@ -304,6 +399,16 @@
             <label>自动同步间隔（秒）<input name="sync_interval_seconds" type="number" min="60" max="86400" step="60" value="300"></label>
             <button type="submit">保存设置</button>
           </form>
+          <form id="checkinSettingsForm" class="panel compact-form checkin-settings-form">
+            <div class="form-intro"><h2>签到配置</h2><p>设置每日签到奖励，默认仅允许已开通套餐用户领取。</p></div>
+            <label class="check"><input name="enabled" type="checkbox">开启签到</label>
+            <label>奖励模式<select name="mode"><option value="fixed">固定值</option><option value="random">随机范围</option></select></label>
+            <label>固定奖励 GB<input name="fixed_gb" type="number" min="0.01" step="0.01" value="1"></label>
+            <label>随机最小 GB<input name="min_gb" type="number" min="0.01" step="0.01" value="0.5"></label>
+            <label>随机最大 GB<input name="max_gb" type="number" min="0.01" step="0.01" value="1"></label>
+            <label class="check"><input name="active_plan_only" type="checkbox" checked>仅开通套餐用户</label>
+            <button type="submit">保存签到配置</button>
+          </form>
           <div class="split lists-split">
             <div class="list-panel"><div class="list-heading"><div><h2>套餐列表</h2><span>商城实时读取</span></div><button id="newPlanBtn" type="button">新增套餐</button></div><div id="planList" class="row-list"></div></div>
             <div class="list-panel"><div class="list-heading"><div><h2>面板列表</h2><span>凭据仅本机保存</span></div><button id="newPanelBtn" type="button">新增面板</button></div><div id="panelList" class="row-list"></div></div>
@@ -315,8 +420,13 @@
     <nav id="mobileNav" class="mobile-nav" aria-label="移动端导航">
       <button type="button" class="active" data-view="home"><span>首页</span></button>
       <button type="button" data-view="storefront"><span>商城</span></button>
+      <button type="button" data-view="nodeStatus"><span>节点</span></button>
+      <button type="button" data-view="guide"><span>教程</span></button>
       <button type="button" class="user-only hidden" data-view="account"><span>订阅</span></button>
+      <button type="button" class="user-only hidden" data-view="tickets"><span>工单</span></button>
       <button type="button" class="admin-only hidden" data-view="admin"><span>用户</span></button>
+      <button type="button" class="admin-only hidden" data-view="tickets"><span>工单</span></button>
+      <button type="button" class="admin-only hidden" data-view="rechargeCards"><span>充值卡</span></button>
       <button type="button" class="admin-only hidden" data-view="nodes"><span>节点</span></button>
       <button type="button" class="admin-only hidden" data-view="settings"><span>配置</span></button>
     </nav>
@@ -332,6 +442,7 @@
         <div class="auth-tabs" role="tablist" aria-label="账号操作">
           <button type="button" class="active" role="tab" aria-selected="true" data-auth-tab="login">登录</button>
           <button type="button" role="tab" aria-selected="false" data-auth-tab="register">注册</button>
+          <button type="button" role="tab" aria-selected="false" data-auth-tab="forgot">忘记密码</button>
         </div>
         <form id="loginForm" class="auth-form" data-auth-panel="login">
           <label>邮箱<input name="email" type="email" autocomplete="email" placeholder="name@example.com" required></label>
@@ -344,6 +455,12 @@
           <p class="form-note">至少 6 位字符。注册成功后会自动登录。</p>
           <button type="submit" class="wide-button">创建账号并继续</button>
         </form>
+        <div id="forgotPasswordPanel" class="auth-form hidden forgot-password-panel" data-auth-panel="forgot">
+          <div class="form-intro"><h2>找回密码</h2><p>当前未配置邮件验证码。请提交账号信息后联系管理员在后台处理重置。</p></div>
+          <label>账号邮箱<input type="email" autocomplete="email" placeholder="name@example.com"></label>
+          <p class="form-note">为了安全，系统不会在这里直接修改密码；后续配置 SMTP 后可扩展邮件验证码或重置链接。</p>
+          <button type="button" class="wide-button ghost" data-auth-tab="login">返回登录</button>
+        </div>
       </div>
     </dialog>
 
