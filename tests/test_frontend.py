@@ -102,6 +102,7 @@ class FrontendTests(unittest.TestCase):
 
         self.assertIn('id="settingsForm"', index_html)
         self.assertIn('name="sync_interval_seconds"', index_html)
+        self.assertIn('name="subscription_title"', index_html)
         self.assertIn("/api/admin/settings", app_js)
         self.assertIn("renderSettings", app_js)
 

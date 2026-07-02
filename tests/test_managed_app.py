@@ -147,7 +147,7 @@ class ManagedAppTests(unittest.TestCase):
         retry = self.post_admin("/api/admin/users/provision/retry", {"user_id": self.admin["id"]})
         preview = self.post_admin("/api/admin/users/reconcile", {"user_id": self.admin["id"], "apply": False})
         panel_test = self.post_admin("/api/admin/panels/test", {"panel_id": panel_id})
-        settings_post = self.post_admin("/api/admin/settings", {"sync_interval_seconds": 120})
+        settings_post = self.post_admin("/api/admin/settings", {"sync_interval_seconds": 120, "subscription_title": "良心云"})
         settings_get = self.app.handle_json("GET", "/api/admin/settings", self.headers, "")
 
         self.assertEqual(retry.status, 400)  # admin has no plan, but route exists and validates cleanly
@@ -155,6 +155,7 @@ class ManagedAppTests(unittest.TestCase):
         self.assertEqual(json.loads(panel_test.body)["ok"], True)
         self.assertEqual(settings_post.status, 200)
         self.assertEqual(json.loads(settings_get.body)["settings"]["sync_interval_seconds"], "120")
+        self.assertEqual(json.loads(settings_get.body)["settings"]["subscription_title"], "良心云")
 
     def test_retry_returns_failed_target_details_without_panel_secrets(self):
         app = XuiManagerApp(Path(self.tmp.name) / "retry-errors.db", client_factory=ExplodingPanelClient)

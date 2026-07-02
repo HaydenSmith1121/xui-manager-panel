@@ -1,3 +1,4 @@
+import base64
 import json
 import tempfile
 import unittest
@@ -71,6 +72,17 @@ class ManagedSubscriptionTests(unittest.TestCase):
         response, _ = self.response_json(user)
 
         self.assertIn("upload=30; download=60;", response.headers["Subscription-Userinfo"])
+
+    def test_custom_subscription_title_is_used_in_payload_and_profile_header(self):
+        self.db.set_setting("subscription_title", "良心云")
+        user = self.active_user("user@example.com")
+        self.provisioned_client(user)
+
+        response, body = self.response_json(user)
+
+        profile_title = base64.b64decode(response.headers["Profile-Title"]).decode("utf-8")
+        self.assertEqual(profile_title, "良心云")
+        self.assertEqual(body["name"], "良心云")
 
     def test_exhausted_valid_token_returns_empty_200_with_metadata(self):
         tiny_plan = self.db.create_plan("Tiny", 0.000001, 30, ["premium"], True)

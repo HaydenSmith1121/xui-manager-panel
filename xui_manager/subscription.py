@@ -53,7 +53,12 @@ def build_clash_subscription(db: Any, token: str) -> Response:
         proxy = node_to_proxy(node, client_uuid=client_uuid)
         if proxy:
             nodes.append(proxy)
-    return subscription_response(nodes, totals["upload"], totals["download"], quota, expire_at, user["email"])
+    return subscription_response(nodes, totals["upload"], totals["download"], quota, expire_at, subscription_title(db, user["email"]))
+
+
+def subscription_title(db: Any, fallback: str) -> str:
+    title = str(db.get_setting("subscription_title", "") or "").strip()
+    return title or fallback
 
 
 def subscription_response(
@@ -67,6 +72,7 @@ def subscription_response(
     group_name = "Proxy"
     names = [node["name"] for node in nodes]
     payload = {
+        "name": title,
         "mixed-port": 7890,
         "allow-lan": False,
         "mode": "rule",

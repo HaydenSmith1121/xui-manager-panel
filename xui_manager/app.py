@@ -210,12 +210,20 @@ class XuiManagerApp:
         if method == "POST" and path == "/api/admin/sync-usage":
             return self.json_response(self.usage_sync.sync_all())
         if method == "GET" and path == "/api/admin/settings":
-            return self.json_response({"settings": {"sync_interval_seconds": self.db.get_setting("sync_interval_seconds", "300")}})
+            return self.json_response({"settings": self.admin_settings()})
         if method == "POST" and path == "/api/admin/settings":
             for key, value in payload.items():
+                if key == "subscription_title":
+                    value = str(value or "").strip()
                 self.db.set_setting(str(key), value)
-            return self.json_response({"settings": {"sync_interval_seconds": self.db.get_setting("sync_interval_seconds", "300")}})
+            return self.json_response({"settings": self.admin_settings()})
         return self.json_response({"error": "Not found"}, 404)
+
+    def admin_settings(self) -> dict[str, Any]:
+        return {
+            "sync_interval_seconds": self.db.get_setting("sync_interval_seconds", "300"),
+            "subscription_title": self.db.get_setting("subscription_title", ""),
+        }
 
     def subscription(self, token: str) -> Response:
         return build_clash_subscription(self.db, token)

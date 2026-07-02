@@ -261,6 +261,7 @@ function renderSettings() {
   const form = $("#settingsForm");
   if (!form) return;
   form.elements.sync_interval_seconds.value = state.settings.sync_interval_seconds || "300";
+  form.elements.subscription_title.value = state.settings.subscription_title || "";
 }
 
 function renderInboundOptions(inbounds) {
@@ -416,7 +417,7 @@ function bindEvents() {
     const data = await api("/api/admin/settings", { method: "POST", body: JSON.stringify(formData(form)) });
     state.settings = data.settings || {};
     renderSettings();
-    showNotice("同步设置已保存");
+    showNotice("设置已保存");
   }));
 
   $("#usageForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
