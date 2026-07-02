@@ -165,6 +165,44 @@ class AppTests(unittest.TestCase):
         self.assertIn("Max-Age=0", logout.headers["Set-Cookie"])
         self.assertIsNone(json.loads(me.body)["user"])
 
+    def test_logged_in_user_can_change_password(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app = create_app(Path(tmp) / "app.db")
+            app.db.register_user("user@example.com", "secret123")
+            login = app.handle_json(
+                "POST",
+                "/api/login",
+                {},
+                json.dumps({"email": "user@example.com", "password": "secret123"}),
+            )
+            headers = {
+                "Cookie": login.headers["Set-Cookie"].split(";", 1)[0],
+                "Content-Type": "application/json",
+            }
+
+            response = app.handle_json(
+                "POST",
+                "/api/me/password",
+                headers,
+                json.dumps({"current_password": "secret123", "new_password": "newsecret123"}),
+            )
+            old_login = app.handle_json(
+                "POST",
+                "/api/login",
+                {},
+                json.dumps({"email": "user@example.com", "password": "secret123"}),
+            )
+            new_login = app.handle_json(
+                "POST",
+                "/api/login",
+                {},
+                json.dumps({"email": "user@example.com", "password": "newsecret123"}),
+            )
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(old_login.status, 401)
+        self.assertEqual(new_login.status, 200)
+
 
 if __name__ == "__main__":
     unittest.main()

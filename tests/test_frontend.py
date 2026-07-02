@@ -186,6 +186,36 @@ class FrontendTests(unittest.TestCase):
         self.assertIn("subscription_urls", app_js)
         self.assertNotIn("state.me.email ||", app_js)
 
+    def test_personal_center_avatar_profile_and_settings_exist(self):
+        root = Path(__file__).resolve().parents[1]
+        app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
+        app_css = (root / "static" / "app.css").read_text(encoding="utf-8")
+        index_html = (root / "static" / "index.html").read_text(encoding="utf-8")
+
+        for marker in (
+            'id="profileEntryBtn"',
+            'id="profileView"',
+            'id="profileAvatarInput"',
+            'id="expireReminderToggle"',
+            'id="trafficReminderToggle"',
+            'id="autoRenewToggle"',
+            'id="profileGiftCardForm"',
+            'id="profileGiftCardBalance"',
+            'id="profilePasswordForm"',
+            'id="profileSubscriptionUrl"',
+            "礼品卡兑换",
+            "复制订阅链接",
+        ):
+            self.assertIn(marker, index_html)
+        self.assertIn("renderProfile", app_js)
+        self.assertIn("data-copy-profile-sub", app_js)
+        self.assertIn("/api/me/password", app_js)
+        self.assertIn("礼品卡兑换成功，余额已到账", app_js)
+        self.assertIn('$("#sessionEmail").textContent = loggedIn ? state.me.email : "游客"', app_js)
+        self.assertIn(".profile-entry", app_css)
+        self.assertIn(".profile-sections", app_css)
+        self.assertIn(".gift-card-panel", app_css)
+
     def test_user_list_has_search_filters_collapse_notes_and_balance_tools(self):
         root = Path(__file__).resolve().parents[1]
         app_js = (root / "static" / "app.js").read_text(encoding="utf-8")

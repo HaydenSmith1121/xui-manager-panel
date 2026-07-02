@@ -118,6 +118,19 @@ class ManagedAppTests(unittest.TestCase):
         self.assertNotIn("code_hash", admin_list.body)
         self.assertNotIn(cards[0]["code"], admin_list.body)
 
+    def test_admin_profile_can_redeem_gift_card(self):
+        generated = self.post_admin("/api/admin/recharge-cards", {"amount_yuan": 15, "count": 1})
+        card = json.loads(generated.body)["cards"][0]
+
+        response = self.app.handle_json(
+            "POST", "/api/recharge", self.headers, json.dumps({"code": card["code"]})
+        )
+        payload = json.loads(response.body)
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(payload["user"]["email"], "admin@example.com")
+        self.assertEqual(payload["user"]["balance_cents"], 1500)
+
     def test_admin_can_adjust_balance_and_mark_priority_note(self):
         user = self.app.db.register_user("priority@example.com", "secret123")
 

@@ -434,6 +434,19 @@ class Database:
             return user
         return None
 
+    def update_password(self, user_id: int, current_password: str, new_password: str) -> dict[str, Any]:
+        if len(new_password) < 6:
+            raise ValueError("password too short")
+        with self.session() as conn:
+            row = conn.execute("select * from users where id=?", (int(user_id),)).fetchone()
+            if not row:
+                raise ValueError("user not found")
+            user = self._decode_user(row)
+            if not verify_password(current_password, user["password_hash"]):
+                raise ValueError("当前密码不正确")
+            conn.execute("update users set password_hash=? where id=?", (hash_password(new_password), int(user_id)))
+        return self.get_user(user_id)
+
     def create_session(self, user_id: int) -> str:
         token = secrets.token_urlsafe(32)
         with self.session() as conn:
@@ -598,8 +611,8 @@ class Database:
         now = int(time.time())
         with self.session() as conn:
             conn.execute("begin immediate")
-            user = conn.execute("select balance_cents, role from users where id=?", (int(user_id),)).fetchone()
-            if not user or user["role"] != "user":
+            user = conn.execute("select balance_cents from users where id=?", (int(user_id),)).fetchone()
+            if not user:
                 raise ValueError("用户不存在")
             card = conn.execute(
                 "select * from recharge_cards where code_hash=? and status='unused'", (digest,)

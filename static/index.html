@@ -38,6 +38,11 @@
       </aside>
 
       <main class="main-shell">
+        <button id="profileEntryBtn" type="button" class="profile-entry" data-view="profile" aria-label="个人中心">
+          <span id="profileEntryAvatar" class="avatar-circle" aria-hidden="true">登</span>
+          <span id="profileEntryLabel" class="sr-only">个人中心</span>
+        </button>
+
         <header class="mobile-header">
           <button class="brand brand-button" type="button" data-view="storefront">
             <span class="brand-mark" aria-hidden="true">
@@ -45,7 +50,10 @@
             </span>
             <span><strong>黑心云</strong><small>Cloud access</small></span>
           </button>
-          <button id="mobileAccountBtn" type="button" class="avatar-button" data-open-auth="login" aria-label="账号">登录</button>
+          <button id="mobileAccountBtn" type="button" class="avatar-button" aria-label="账号">
+            <span id="mobileAvatar" class="avatar-circle small" aria-hidden="true">登</span>
+            <span id="mobileAccountLabel">登录</span>
+          </button>
         </header>
 
         <div id="notice" class="notice hidden" role="status" aria-live="polite"></div>
@@ -125,6 +133,69 @@
               <label><span>通用 Base64（v2rayNG、Shadowrocket、Hiddify）</span><span class="copy-field"><input id="base64SubscriptionUrl" data-sub-format="base64" readonly><button type="button" data-copy-sub="base64">复制</button></span></label>
               <label><span>sing-box（macOS、Android、iOS）</span><span class="copy-field"><input id="singboxSubscriptionUrl" data-sub-format="singbox" readonly><button type="button" data-copy-sub="singbox">复制</button></span></label>
             </div>
+          </div>
+        </section>
+
+        <section id="profileView" class="view profile-workspace hidden">
+          <div class="profile-hero">
+            <span id="profileHeroAvatar" class="avatar-circle large" aria-hidden="true">登</span>
+            <div>
+              <p class="eyebrow">PROFILE CENTER</p>
+              <h1>个人中心</h1>
+              <p id="profileHeroSummary">登录后管理账号资料与订阅偏好。</p>
+            </div>
+          </div>
+
+          <div class="profile-sections">
+            <section class="panel profile-panel">
+              <div class="form-intro"><h2>基本信息</h2><p>账号资料与头像展示。</p></div>
+              <dl class="profile-field-list">
+                <div><dt>邮箱账号</dt><dd id="profileEmail">-</dd></div>
+                <div><dt>创建时间</dt><dd id="profileCreatedAt">-</dd></div>
+              </dl>
+              <label class="avatar-upload-button">
+                修改头像
+                <input id="profileAvatarInput" type="file" accept="image/*">
+              </label>
+            </section>
+
+            <section class="panel profile-panel">
+              <div class="form-intro"><h2>通知设置</h2><p>本机保存提醒偏好。</p></div>
+              <label class="profile-switch"><input id="expireReminderToggle" type="checkbox" data-profile-setting="expireReminder">到期提醒</label>
+              <label class="profile-switch"><input id="trafficReminderToggle" type="checkbox" data-profile-setting="trafficReminder">流量提醒</label>
+            </section>
+
+            <section class="panel profile-panel">
+              <div class="form-intro"><h2>账号设置</h2><p>自动续费偏好。</p></div>
+              <label class="profile-switch"><input id="autoRenewToggle" type="checkbox" data-profile-setting="autoRenew">自动续费</label>
+            </section>
+
+            <form id="profileGiftCardForm" class="panel profile-panel gift-card-panel">
+              <div class="form-intro"><h2>礼品卡兑换</h2><p>输入礼品卡卡密，兑换后余额会立即入账。</p></div>
+              <div class="gift-card-balance"><span>当前余额</span><strong id="profileGiftCardBalance">¥0.00</strong></div>
+              <label>礼品卡卡密<input name="code" autocomplete="off" placeholder="HXY-XXXX-XXXX-XXXX" required></label>
+              <button type="submit">立即兑换</button>
+            </form>
+
+            <form id="profilePasswordForm" class="panel profile-panel password-panel">
+              <div class="form-intro"><h2>安全设置</h2><p>修改当前登录账号密码。</p></div>
+              <label>当前密码<input name="current_password" type="password" autocomplete="current-password" required></label>
+              <label>新密码<input name="new_password" type="password" autocomplete="new-password" minlength="6" required></label>
+              <label>确认新密码<input name="confirm_password" type="password" autocomplete="new-password" minlength="6" required></label>
+              <button type="submit">修改密码</button>
+            </form>
+
+            <section class="panel profile-panel subscription-profile-panel">
+              <div class="form-intro"><h2>订阅管理</h2><p id="profileSubscriptionInfo">订阅信息会在开通后显示。</p></div>
+              <div class="profile-subscription-stats">
+                <span><small>状态</small><strong id="profileSubStatus">-</strong></span>
+                <span><small>到期时间</small><strong id="profileSubExpire">-</strong></span>
+                <span><small>剩余流量</small><strong id="profileSubRemain">-</strong></span>
+              </div>
+              <label class="subscription-display">订阅链接展示
+                <span class="copy-field"><input id="profileSubscriptionUrl" readonly><button type="button" data-copy-profile-sub>复制订阅链接</button></span>
+              </label>
+            </section>
           </div>
         </section>
 

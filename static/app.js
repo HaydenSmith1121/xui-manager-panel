@@ -16,6 +16,8 @@ const state = {
   loadingTimer: null,
   elapsedTimer: null,
   authReturnFocus: null,
+  profilePrefs: { expireReminder: true, trafficReminder: true, autoRenew: false },
+  profileAvatar: "",
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -105,6 +107,11 @@ function toDate(seconds) {
   return new Date(Number(seconds) * 1000).toLocaleDateString("zh-CN");
 }
 
+function toDateTime(seconds) {
+  if (!seconds) return "-";
+  return new Date(Number(seconds) * 1000).toLocaleString("zh-CN");
+}
+
 function statusText(status) {
   return {
     unsubscribed: "未购买",
@@ -112,6 +119,53 @@ function statusText(status) {
     active: "已开通",
     disabled: "已停用",
   }[status] || status || "未知";
+}
+
+function profileStorageKey(kind) {
+  return state.me ? `xui-manager:${kind}:${state.me.id}` : `xui-manager:${kind}:guest`;
+}
+
+function profileInitial() {
+  const email = state.me?.email || "";
+  return (email.trim()[0] || "登").toUpperCase();
+}
+
+function loadProfilePrefs() {
+  const defaults = { expireReminder: true, trafficReminder: true, autoRenew: false };
+  if (!state.me) {
+    state.profilePrefs = defaults;
+    state.profileAvatar = "";
+    return;
+  }
+  try {
+    state.profilePrefs = { ...defaults, ...JSON.parse(localStorage.getItem(profileStorageKey("prefs")) || "{}") };
+  } catch {
+    state.profilePrefs = defaults;
+  }
+  state.profileAvatar = localStorage.getItem(profileStorageKey("avatar")) || "";
+}
+
+function saveProfilePrefs() {
+  if (!state.me) return;
+  localStorage.setItem(profileStorageKey("prefs"), JSON.stringify(state.profilePrefs));
+}
+
+function setAvatarNode(node, size = "") {
+  if (!node) return;
+  node.classList.toggle("small", size === "small");
+  node.classList.toggle("large", size === "large");
+  node.classList.toggle("has-image", Boolean(state.profileAvatar));
+  node.style.backgroundImage = state.profileAvatar ? `url("${state.profileAvatar}")` : "";
+  node.textContent = state.profileAvatar ? "" : profileInitial();
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(reader.result));
+    reader.addEventListener("error", () => reject(new Error("头像读取失败")));
+    reader.readAsDataURL(file);
+  });
 }
 
 function provisioningSummary(summary) {
@@ -224,7 +278,7 @@ async function handleDynamicSubmit(event) {
 }
 
 function setView(view) {
-  if (view === "account" && !state.me) {
+  if (["account", "profile"].includes(view) && !state.me) {
     openAuth("login");
     return;
   }
@@ -280,7 +334,8 @@ async function refreshBalanceTransactions() {
 function renderAuth() {
   const loggedIn = Boolean(state.me);
   const isAdmin = state.me?.role === "admin";
-  $("#sessionEmail").textContent = loggedIn ? (isAdmin ? "管理员控制台" : "个人中心") : "游客";
+  loadProfilePrefs();
+  $("#sessionEmail").textContent = loggedIn ? state.me.email : "游客";
   $("#loginBtn").classList.toggle("hidden", loggedIn);
   $("#registerBtn").classList.toggle("hidden", loggedIn);
   $("#refreshBtn").classList.toggle("hidden", !loggedIn);
@@ -288,8 +343,16 @@ function renderAuth() {
   $$(".admin-only").forEach((node) => node.classList.toggle("hidden", !isAdmin));
   $$(".user-only").forEach((node) => node.classList.toggle("hidden", !loggedIn || isAdmin));
   const mobileAccount = $("#mobileAccountBtn");
-  mobileAccount.textContent = loggedIn ? (isAdmin ? "后台" : "订阅") : "登录";
+  const mobileAccountLabel = $("#mobileAccountLabel");
+  mobileAccountLabel.textContent = loggedIn ? "个人中心" : "登录";
+  mobileAccount.setAttribute("aria-label", loggedIn ? `个人中心：${state.me.email}` : "登录账号");
+  $("#profileEntryLabel").textContent = loggedIn ? `个人中心：${state.me.email}` : "登录账号";
+  $("#profileEntryBtn").setAttribute("aria-label", loggedIn ? `个人中心：${state.me.email}` : "登录账号");
+  setAvatarNode($("#profileEntryAvatar"));
+  setAvatarNode($("#mobileAvatar"), "small");
+  setAvatarNode($("#profileHeroAvatar"), "large");
   if (!loggedIn) {
+    renderProfile();
     renderPlanCatalog();
     return;
   }
@@ -312,7 +375,37 @@ function renderAuth() {
   $("#singboxSubscriptionUrl").value = subscriptionUrls.singbox || "";
   $("#copySubBtn").disabled = state.me.status !== "active" || !state.me.subscription_url;
   renderTransactions();
+  renderProfile();
   renderPlanCatalog();
+}
+
+function renderProfile() {
+  const loggedIn = Boolean(state.me);
+  $("#profileHeroSummary").textContent = loggedIn
+    ? `${state.me.email} · ${state.me.role === "admin" ? "管理员" : statusText(state.me.status)}`
+    : "登录后管理账号资料与订阅偏好。";
+  $("#profileEmail").textContent = loggedIn ? state.me.email : "-";
+  $("#profileCreatedAt").textContent = loggedIn ? toDateTime(state.me.created_at) : "-";
+  $("#profileGiftCardBalance").textContent = loggedIn ? formatMoney(state.me.balance_cents) : "¥0.00";
+  $("#expireReminderToggle").checked = Boolean(state.profilePrefs.expireReminder);
+  $("#trafficReminderToggle").checked = Boolean(state.profilePrefs.trafficReminder);
+  $("#autoRenewToggle").checked = Boolean(state.profilePrefs.autoRenew);
+  const subscriptionUrls = state.me?.subscription_urls || {};
+  const subscriptionUrl = subscriptionUrls.clash || state.me?.subscription_url || "";
+  const plan = state.plans.find((item) => Number(item.id) === Number(state.me?.plan_id));
+  $("#profileSubscriptionInfo").textContent = loggedIn
+    ? `${plan?.name || "当前未选择套餐"} · ${formatBytes(state.me.quota_bytes)} 总量`
+    : "登录后展示订阅信息。";
+  $("#profileSubStatus").textContent = loggedIn ? statusText(state.me.status) : "-";
+  $("#profileSubExpire").textContent = loggedIn ? toDate(state.me.expire_at) : "-";
+  $("#profileSubRemain").textContent = loggedIn ? formatBytes(state.me.remaining_bytes) : "-";
+  $("#profileSubscriptionUrl").value = subscriptionUrl;
+  $$("[data-copy-profile-sub]").forEach((button) => {
+    button.disabled = !subscriptionUrl || state.me?.status !== "active";
+  });
+  setAvatarNode($("#profileEntryAvatar"));
+  setAvatarNode($("#mobileAvatar"), "small");
+  setAvatarNode($("#profileHeroAvatar"), "large");
 }
 
 function renderTransactions() {
@@ -686,6 +779,11 @@ async function handleDocumentClick(event) {
     showNotice("订阅链接已复制");
     return;
   }
+  if (target.closest("[data-copy-profile-sub]")) {
+    await copyTextFromInput($("#profileSubscriptionUrl"));
+    showNotice("订阅链接已复制");
+    return;
+  }
 
   const closeDialog = target.closest("[data-close-dialog]");
   if (closeDialog) {
@@ -777,9 +875,34 @@ async function handleDocumentClick(event) {
   }
 }
 
+async function handleDocumentChange(event) {
+  const target = event.target instanceof HTMLInputElement ? event.target : null;
+  if (!target) return;
+  if (target.matches("[data-profile-setting]")) {
+    state.profilePrefs[target.dataset.profileSetting] = target.checked;
+    saveProfilePrefs();
+    showNotice("个人中心设置已保存");
+    return;
+  }
+  if (target.id === "profileAvatarInput") {
+    const file = target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) throw new Error("请选择图片文件作为头像");
+    if (file.size > 1024 * 1024) throw new Error("头像图片不能超过 1MB");
+    state.profileAvatar = String(await readFileAsDataUrl(file));
+    localStorage.setItem(profileStorageKey("avatar"), state.profileAvatar);
+    renderProfile();
+    showNotice("头像已更新");
+    target.value = "";
+  }
+}
+
 function bindEvents() {
   document.addEventListener("click", (event) => {
     handleDocumentClick(event).catch((error) => showNotice(error?.message || "操作失败"));
+  });
+  document.addEventListener("change", (event) => {
+    handleDocumentChange(event).catch((error) => showNotice(error?.message || "操作失败"));
   });
   document.addEventListener("submit", (event) => {
     handleDynamicSubmit(event).catch((error) => showNotice(error?.message || "操作失败"));
@@ -788,7 +911,7 @@ function bindEvents() {
     state.pendingPlanId = null;
   });
   $("#mobileAccountBtn").addEventListener("click", () => {
-    if (state.me) setView(state.me.role === "admin" ? "admin" : "account");
+    if (state.me) setView("profile");
     else openAuth("login");
   });
   $("#refreshBtn").addEventListener("click", async () => {
@@ -803,6 +926,7 @@ function bindEvents() {
     state.panels = [];
     state.nodes = [];
     state.pendingPlanId = null;
+    state.profileAvatar = "";
     $("#loginForm").reset();
     $("#registerForm").reset();
     setView("storefront");
@@ -835,6 +959,25 @@ function bindEvents() {
     await copyTextFromInput($("#subscriptionUrl"));
     showNotice("订阅链接已复制");
   });
+
+  $("#profilePasswordForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
+    const data = formData(form);
+    if (data.new_password !== data.confirm_password) throw new Error("两次输入的新密码不一致");
+    const result = await api("/api/me/password", { method: "POST", body: JSON.stringify(data), loadingLabel: "正在修改密码" });
+    state.me = result.user;
+    form.reset();
+    renderAuth();
+    showNotice("密码已修改");
+  }));
+
+  $("#profileGiftCardForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
+    const data = await api("/api/recharge", { method: "POST", body: JSON.stringify(formData(form)), loadingLabel: "正在兑换礼品卡" });
+    state.me = data.user;
+    form.reset();
+    if (state.me?.role === "user") await refreshBalanceTransactions();
+    renderAuth();
+    showNotice("礼品卡兑换成功，余额已到账");
+  }));
 
   $("#loginForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
     const data = await api("/api/login", { method: "POST", body: JSON.stringify(formData(form)), loadingLabel: "正在登录" });

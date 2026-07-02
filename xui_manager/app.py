@@ -63,6 +63,15 @@ class XuiManagerApp:
             if method == "GET" and path == "/api/me":
                 user = self.user_from_headers(headers)
                 return self.json_response({"user": self.user_summary(user, headers) if user else None})
+            if method == "POST" and path == "/api/me/password":
+                user = self.user_from_headers(headers)
+                if not user:
+                    return self.json_response({"error": "请先登录"}, 401)
+                guard = self.require_mutation_headers(headers)
+                if guard:
+                    return guard
+                updated = self.db.update_password(user["id"], payload["current_password"], payload["new_password"])
+                return self.json_response({"user": self.user_summary(updated, headers)})
             if method == "GET" and path == "/api/balance/transactions":
                 user = self.user_from_headers(headers)
                 if not user or user.get("role") != "user":
@@ -70,8 +79,8 @@ class XuiManagerApp:
                 return self.json_response({"transactions": self.db.list_balance_transactions(user["id"])})
             if method == "POST" and path == "/api/recharge":
                 user = self.user_from_headers(headers)
-                if not user or user.get("role") != "user":
-                    return self.json_response({"error": "请先登录后再充值"}, 401)
+                if not user:
+                    return self.json_response({"error": "请先登录后再兑换礼品卡"}, 401)
                 guard = self.require_mutation_headers(headers)
                 if guard:
                     return guard
