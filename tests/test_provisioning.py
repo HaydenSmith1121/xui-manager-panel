@@ -29,6 +29,7 @@ class FakePanelClient:
         self.login_calls = 0
         self.add_calls = 0
         self.update_calls = 0
+        self.delete_calls = 0
 
     def recover(self):
         self.fail = False
@@ -79,6 +80,16 @@ class FakePanelClient:
         }
         self._store_client(inbound_id, client)
         return dict(client)
+
+    def delete_vless_client(self, *, inbound_id, client_uuid, email):
+        self.delete_calls += 1
+        if self.fail:
+            raise RuntimeError("delete failed secret-token")
+        item = self.inbounds[int(inbound_id)]
+        settings = json.loads(item.get("settings") or "{}")
+        settings["clients"] = [client for client in settings.get("clients", []) if client.get("id") != client_uuid]
+        item["settings"] = json.dumps(settings)
+        return True
 
     def _store_client(self, inbound_id, client):
         item = self.inbounds[int(inbound_id)]
@@ -244,6 +255,65 @@ class ProvisioningTests(unittest.TestCase):
         self.assertEqual(fake.update_calls, 1)
         self.assertFalse(client["desired_enabled"])
         self.assertFalse(client["remote_enabled"])
+
+    def test_delete_user_removes_remote_client_then_local_records(self):
+        panel_id = self.panel("Panel", "https://panel.example.com")
+        node_id = self.managed_node(panel_id, 1)
+        service = ProvisioningService(self.db, self.factory)
+        service.provision_user(self.user["id"])
+        self.db.record_usage(self.user["id"], node_id, 10, 20)
+        session = self.db.create_session(self.user["id"])
+        self.db.update_user_status(self.user["id"], "disabled")
+
+        result = service.delete_user(self.user["id"])
+
+        fake = next(iter(self.clients.values()))
+        self.assertEqual(result, {"deleted": True, "errors": []})
+        self.assertEqual(fake.delete_calls, 1)
+        self.assertIsNone(self.db.get_user(self.user["id"]))
+        self.assertIsNone(self.db.get_session_user(session))
+        self.assertEqual(self.db.list_managed_clients(user_id=self.user["id"]), [])
+
+    def test_delete_user_preserves_local_records_when_any_panel_fails(self):
+        good = FakePanelClient([inbound(1)])
+        bad = FakePanelClient([inbound(1)])
+        good_panel = self.panel("Good", "https://good.example.com", fake=good)
+        bad_panel = self.panel("Bad", "https://bad.example.com", fake=bad)
+        self.managed_node(good_panel, 1)
+        self.managed_node(bad_panel, 1)
+        service = ProvisioningService(self.db, self.factory)
+        service.provision_user(self.user["id"])
+        self.db.update_user_status(self.user["id"], "disabled")
+        bad.fail = True
+
+        result = service.delete_user(self.user["id"])
+
+        self.assertFalse(result["deleted"])
+        self.assertEqual(len(result["errors"]), 1)
+        self.assertEqual(result["errors"][0]["panel_name"], "Bad")
+        self.assertNotIn("secret-token", json.dumps(result))
+        self.assertIsNotNone(self.db.get_user(self.user["id"]))
+        self.assertEqual(len(self.db.list_managed_clients(user_id=self.user["id"])), 2)
+
+    def test_delete_user_treats_already_missing_remote_client_as_success(self):
+        panel_id = self.panel("Panel", "https://panel.example.com")
+        self.managed_node(panel_id, 1)
+        service = ProvisioningService(self.db, self.factory)
+        service.provision_user(self.user["id"])
+        fake = next(iter(self.clients.values()))
+        fake.inbounds[1]["settings"] = json.dumps({"clients": []})
+        self.db.update_user_status(self.user["id"], "disabled")
+
+        result = service.delete_user(self.user["id"])
+
+        self.assertTrue(result["deleted"])
+        self.assertIsNone(self.db.get_user(self.user["id"]))
+
+    def test_delete_user_requires_disabled_non_admin_account(self):
+        service = ProvisioningService(self.db, self.factory)
+
+        with self.assertRaisesRegex(ValueError, "disabled"):
+            service.delete_user(self.user["id"])
 
 
 if __name__ == "__main__":

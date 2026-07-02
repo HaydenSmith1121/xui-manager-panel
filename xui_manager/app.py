@@ -129,6 +129,9 @@ class XuiManagerApp:
             )
         if method == "POST" and path == "/api/admin/users/status":
             return self.json_response({"user": self.user_summary(self.db.update_user_status(int(payload["user_id"]), payload["status"]), headers)})
+        if method == "POST" and path == "/api/admin/users/delete":
+            result = self.provisioning.delete_user(int(payload["user_id"]))
+            return self.json_response(result, 200 if result["deleted"] else 502)
         if method == "GET" and path == "/api/admin/plans":
             return self.json_response({"plans": self.db.list_plans()})
         if method == "POST" and path == "/api/admin/plans":

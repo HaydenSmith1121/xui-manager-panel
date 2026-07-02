@@ -40,6 +40,9 @@ class FakePanelClient:
     def update_vless_client(self, *, inbound_id, client_uuid, email, flow, expire_at, enabled):
         return {"id": client_uuid, "email": email, "flow": flow, "enable": bool(enabled)}
 
+    def delete_vless_client(self, *, inbound_id, client_uuid, email):
+        return True
+
 
 class ExplodingPanelClient(FakePanelClient):
     def login(self):
@@ -354,6 +357,49 @@ class ManagedAppTests(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.assertIn("synced", payload)
         self.assertIn("disabled", payload)
+
+    def test_delete_user_route_requires_disabled_non_admin_and_deletes_target(self):
+        plan_id = self.app.db.create_plan("Premium", 100, 30, [], True)
+        active = self.app.db.approve_user(self.app.db.register_user("active@example.com", "secret123", plan_id)["id"])
+        disabled = self.app.db.register_user("disabled@example.com", "secret123")
+        disabled = self.app.db.update_user_status(disabled["id"], "disabled")
+
+        active_response = self.post_admin("/api/admin/users/delete", {"user_id": active["id"]})
+        admin_response = self.post_admin("/api/admin/users/delete", {"user_id": self.admin["id"]})
+        deleted_response = self.post_admin("/api/admin/users/delete", {"user_id": disabled["id"]})
+
+        self.assertEqual(active_response.status, 400)
+        self.assertEqual(admin_response.status, 400)
+        self.assertEqual(deleted_response.status, 200)
+        self.assertEqual(json.loads(deleted_response.body), {"deleted": True, "errors": []})
+        self.assertIsNone(self.app.db.get_user(disabled["id"]))
+
+    def test_delete_user_route_preserves_local_user_and_redacts_panel_failure(self):
+        app = XuiManagerApp(Path(self.tmp.name) / "delete-errors.db", client_factory=ExplodingPanelClient)
+        admin = app.db.seed_admin("admin@example.com", "password123")
+        login = app.handle_json("POST", "/api/login", {}, json.dumps({"email": admin["email"], "password": "password123"}))
+        headers = {
+            "Cookie": login.headers["Set-Cookie"].split(";", 1)[0],
+            "Host": "manager.example.com",
+            "Content-Type": "application/json",
+        }
+        plan_id = app.db.create_plan("Premium", 100, 30, [], False)
+        user = app.db.register_user("user@example.com", "secret123", plan_id)
+        panel_id = app.db.create_panel("Korea", "https://panel.example.com", "panel-admin", "stored-secret")
+        app.db.create_node(
+            "Korea Managed", "vless://template@example.com:443?security=tls#KR", 1, [], True, panel_id, 1, "managed"
+        )
+        app.provisioning.provision_user(user["id"])
+        managed = app.db.list_managed_clients(user_id=user["id"])[0]
+        app.db.update_user_status(user["id"], "disabled")
+
+        response = app.handle_json("POST", "/api/admin/users/delete", headers, json.dumps({"user_id": user["id"]}))
+
+        self.assertEqual(response.status, 502)
+        self.assertIsNotNone(app.db.get_user(user["id"]))
+        self.assertNotIn("stored-secret", response.body)
+        self.assertNotIn("panel-admin", response.body)
+        self.assertNotIn(managed["client_uuid"], response.body)
 
     def test_node_delete_route_removes_node(self):
         node_id = self.app.db.create_node(

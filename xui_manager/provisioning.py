@@ -50,6 +50,48 @@ class ProvisioningService:
                 self._apply_remote(target, enabled=enabled)
         return self.status_for_user(user_id)
 
+    def delete_user(self, user_id: int) -> dict[str, Any]:
+        user = self.db.get_user(user_id)
+        if not user:
+            raise ValueError("user not found")
+        if user.get("role") == "admin" or user.get("status") != "disabled":
+            raise ValueError("only disabled users can be deleted")
+        panels = self._panels_by_id()
+        errors: list[dict[str, Any]] = []
+        for managed in self.db.list_managed_clients(user_id=user_id):
+            panel = panels.get(int(managed["panel_id"]))
+            try:
+                if not panel:
+                    raise ValueError("panel not found")
+                remote = self._client_for_panel(panel)
+                remote.login()
+                remote.delete_vless_client(
+                    inbound_id=managed["inbound_id"],
+                    client_uuid=managed["client_uuid"],
+                    email=managed["remote_email"],
+                )
+            except Exception as exc:  # noqa: BLE001
+                error = self._sanitize_error(str(exc), panel)
+                errors.append(
+                    {
+                        "panel_id": managed["panel_id"],
+                        "panel_name": (panel or {}).get("name") or f"Panel {managed['panel_id']}",
+                        "inbound_id": managed["inbound_id"],
+                        "error": error,
+                    }
+                )
+                logger.warning(
+                    "Client deletion failed for panel_id=%s inbound_id=%s managed_client_id=%s: %s",
+                    managed["panel_id"],
+                    managed["inbound_id"],
+                    managed["id"],
+                    error,
+                )
+        if errors:
+            return {"deleted": False, "errors": errors}
+        self.db.delete_user(user_id)
+        return {"deleted": True, "errors": []}
+
     def reconcile_user(self, user_id: int, apply: bool = False) -> dict[str, Any]:
         user = self._active_user(user_id)
         targets = self._eligible_targets(user)

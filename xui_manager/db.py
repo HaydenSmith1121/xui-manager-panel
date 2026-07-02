@@ -430,6 +430,24 @@ class Database:
         with self.session() as conn:
             return [self._decode_user(row) for row in conn.execute("select * from users order by id")]
 
+    def delete_user(self, user_id: int) -> None:
+        user_id = int(user_id)
+        with self.session() as conn:
+            conn.execute("begin immediate")
+            row = conn.execute("select role, status from users where id=?", (user_id,)).fetchone()
+            if not row:
+                raise ValueError("user not found")
+            if row["role"] == "admin" or row["status"] != "disabled":
+                raise ValueError("only disabled users can be deleted")
+            conn.execute(
+                "delete from usage_ledgers where managed_client_id in (select id from managed_clients where user_id=?)",
+                (user_id,),
+            )
+            conn.execute("delete from managed_clients where user_id=?", (user_id,))
+            conn.execute("delete from usage_records where user_id=?", (user_id,))
+            conn.execute("delete from sessions where user_id=?", (user_id,))
+            conn.execute("delete from users where id=?", (user_id,))
+
     def create_panel(
         self,
         name: str,
