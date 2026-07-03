@@ -19,11 +19,10 @@
         </button>
 
         <nav class="nav">
-          <button class="nav-item active" type="button" data-view="home"><span>首页</span><small>服务入口</small></button>
-          <button class="nav-item" type="button" data-view="storefront"><span>商城</span><small>实时套餐</small></button>
+          <button class="nav-item active" type="button" data-view="storefront"><span>商城</span><small>实时商品</small></button>
           <button class="nav-item" type="button" data-view="nodeStatus"><span>节点状态</span><small>延迟与倍率</small></button>
           <button class="nav-item" type="button" data-view="guide"><span>使用教程</span><small>客户端导入</small></button>
-          <button class="nav-item user-only hidden" type="button" data-view="account"><span>我的订阅</span><small>用量与链接</small></button>
+          <button class="nav-item user-only hidden" type="button" data-view="account"><span>仪表盘</span><small>用量与签到</small></button>
           <button class="nav-item user-only hidden" type="button" data-view="tickets"><span>工单帮助</span><small>问题跟进</small></button>
           <button class="nav-item admin-only hidden" type="button" data-view="admin"><span>用户</span><small>审核与状态</small></button>
           <button class="nav-item admin-only hidden" type="button" data-view="tickets"><span>工单</span><small>回复与关闭</small></button>
@@ -89,16 +88,9 @@
         <section id="storefrontView" class="view storefront hidden">
           <div class="catalog-section" id="plansSection">
             <div class="section-heading">
-              <div><p class="eyebrow">AVAILABLE PLANS</p><h2>选择适合你的套餐</h2></div>
-              <p>无需登录即可浏览，购买时再验证账号与余额。</p>
+              <div><p class="eyebrow">PRODUCT CATALOG</p><h2>选择适合你的商品</h2></div>
             </div>
             <div id="planCatalog" class="plan-catalog" aria-live="polite"></div>
-          </div>
-
-          <div class="storefront-footer">
-            <strong>余额购买，即时开通。</strong>
-            <p>登录后可充值、购买套餐，并获取多端订阅链接。</p>
-            <button type="button" class="ghost" data-open-auth="register">创建账号</button>
           </div>
         </section>
 
@@ -121,7 +113,7 @@
             <section class="panel checkout-confirm">
               <div class="form-intro"><h2>余额扣款开通</h2><p>点击确认后将从当前余额扣款，并立即调用原套餐开通流程。</p></div>
               <button id="checkoutPurchaseBtn" type="button">确认购买并开通</button>
-              <button type="button" class="ghost" data-view="account">查看我的订阅</button>
+              <button type="button" class="ghost" data-view="account">进入仪表盘</button>
               <p class="form-note">余额不足时请先在个人中心或订阅页使用充值卡充值。</p>
             </section>
           </div>
@@ -135,8 +127,8 @@
             <p id="successPlanName">套餐已开通</p>
             <p id="successMessage" class="meta">订阅链接与用量信息已经更新。</p>
             <div class="success-actions">
-              <button type="button" data-view="account">查看订阅</button>
-              <button type="button" class="ghost" data-view="guide">查看教程</button>
+              <button type="button" data-view="account">进入仪表盘</button>
+              <button type="button" class="ghost" data-view="storefront">继续选购</button>
             </div>
           </div>
         </section>
@@ -150,9 +142,10 @@
         </section>
 
         <section id="guideView" class="view guide-workspace hidden">
-          <div class="page-heading"><div><p class="eyebrow">GUIDE</p><h1>使用教程</h1><p>先复制订阅链接，再按客户端选择导入方式。</p></div></div>
+          <div class="page-heading"><div><p class="eyebrow">GUIDE</p><h1>使用教程</h1><p>按设备选择教程。第一次使用也没关系，跟着步骤复制订阅、导入客户端即可。</p></div></div>
+          <div id="publicTutorialList" class="tutorial-list" aria-live="polite"></div>
           <div class="guide-grid">
-            <article class="panel guide-card"><span>01</span><h2>复制订阅</h2><p>开通套餐后进入“我的订阅”或“个人中心”，复制 Clash、Base64 或 sing-box 订阅链接。</p></article>
+            <article class="panel guide-card"><span>01</span><h2>复制订阅</h2><p>开通商品后进入“仪表盘”，优先复制推荐订阅链接；遇到客户端不识别时再选择其他格式。</p></article>
             <article class="panel guide-card"><span>02</span><h2>导入客户端</h2><p>Clash Verge / Mihomo 推荐使用 Clash 链接；Shadowrocket、v2rayNG、Hiddify 推荐使用通用 Base64。</p></article>
             <article class="panel guide-card"><span>03</span><h2>检查节点</h2><p>连接前可先查看节点状态页，确认节点可用、延迟正常，并了解套餐倍率。</p></article>
             <article class="panel guide-card"><span>FAQ</span><h2>常见问题</h2><p>余额不足请先充值；订阅导入失败时复制另一种格式；账号异常可在工单页提交问题。</p></article>
@@ -161,8 +154,8 @@
 
         <section id="accountView" class="view account-workspace hidden">
           <div class="page-heading">
-            <div><p class="eyebrow">MY SUBSCRIPTION</p><h1>我的订阅</h1><p id="accountStatus">正在读取账号状态…</p></div>
-            <button id="copySubBtn" type="button">复制订阅链接</button>
+            <div><p class="eyebrow">DASHBOARD</p><h1>仪表盘</h1><p id="accountStatus">正在读取账号状态…</p></div>
+            <button type="button" data-copy-recommended-sub>复制推荐订阅</button>
           </div>
           <div class="metric-grid">
             <div class="metric balance-metric"><span>账户余额</span><strong id="balanceText">¥0.00</strong></div>
@@ -183,11 +176,11 @@
             </div>
           </div>
           <div class="subscription-block multi-subscription">
-            <div><h2>多端订阅链接</h2><p>请勿与他人分享；根据客户端选择兼容格式。</p></div>
+            <div><h2>订阅链接</h2><p>推荐优先复制 Clash 链接。其他格式保留给特定客户端，避免新手在多个入口之间反复选择。</p></div>
             <div class="subscription-formats">
-              <label><span>Clash Verge / Mihomo（支持 VLESS；旧版 Clash 可能不兼容）</span><span class="copy-field"><input id="subscriptionUrl" data-sub-format="clash" readonly><button type="button" data-copy-sub="clash">复制</button></span></label>
-              <label><span>通用 Base64（v2rayNG、Shadowrocket、Hiddify）</span><span class="copy-field"><input id="base64SubscriptionUrl" data-sub-format="base64" readonly><button type="button" data-copy-sub="base64">复制</button></span></label>
-              <label><span>sing-box（macOS、Android、iOS）</span><span class="copy-field"><input id="singboxSubscriptionUrl" data-sub-format="singbox" readonly><button type="button" data-copy-sub="singbox">复制</button></span></label>
+              <label><span>Clash Verge / Mihomo（支持 VLESS；旧版 Clash 可能不兼容）</span><span class="copy-field"><input id="subscriptionUrl" data-sub-format="clash" readonly><button type="button" data-copy-sub="clash">复制 Clash</button></span></label>
+              <label><span>通用 Base64（v2rayNG、Shadowrocket、Hiddify）</span><span class="copy-field"><input id="base64SubscriptionUrl" data-sub-format="base64" readonly><button type="button" data-copy-sub="base64">复制 Base64</button></span></label>
+              <label><span>sing-box（macOS、Android、iOS）</span><span class="copy-field"><input id="singboxSubscriptionUrl" data-sub-format="singbox" readonly><button type="button" data-copy-sub="singbox">复制 sing-box</button></span></label>
             </div>
             <div class="client-import-panel">
               <div class="client-import-copy"><h3>一键导入</h3><p>选择客户端尝试直接打开；如果系统没有响应，请复制上方订阅链接手动导入。</p></div>
@@ -202,6 +195,12 @@
               </div>
             </div>
           </div>
+          <section id="checkinPanel" class="panel checkin-panel">
+            <div class="form-intro"><h2>每日签到</h2><p>已开通有效套餐后，每天可领取一次流量奖励。领取后会直接加到当前套餐总量里。</p></div>
+            <div id="checkinStatus" class="checkin-status-card">正在读取签到状态…</div>
+            <button type="button" data-checkin>立即签到</button>
+            <div id="checkinRecentList" class="checkin-recent-list"><span class="meta">暂无签到记录</span></div>
+          </section>
         </section>
 
         <section id="profileView" class="view profile-workspace hidden">
@@ -214,9 +213,9 @@
             </div>
           </div>
 
-          <div class="profile-sections">
-            <section class="panel profile-panel">
-              <div class="form-intro"><h2>基本信息</h2><p>账号资料与头像展示。</p></div>
+          <div class="profile-list">
+            <details class="panel profile-panel" open>
+              <summary><span>基本信息</span><small>账号资料与头像展示</small></summary>
               <dl class="profile-field-list">
                 <div><dt>邮箱账号</dt><dd id="profileEmail">-</dd></div>
                 <div><dt>创建时间</dt><dd id="profileCreatedAt">-</dd></div>
@@ -225,30 +224,18 @@
                 修改头像
                 <input id="profileAvatarInput" type="file" accept="image/*">
               </label>
-            </section>
+            </details>
 
-            <section class="panel profile-panel">
-              <div class="form-intro"><h2>通知设置</h2><p>本机保存提醒偏好。</p></div>
+            <details class="panel profile-panel">
+              <summary><span>通知设置</span><small>本机保存提醒偏好</small></summary>
               <label class="profile-switch"><input id="expireReminderToggle" type="checkbox" data-profile-setting="expireReminder">到期提醒</label>
               <label class="profile-switch"><input id="trafficReminderToggle" type="checkbox" data-profile-setting="trafficReminder">流量提醒</label>
-            </section>
+            </details>
 
-            <section class="panel profile-panel">
-              <div class="form-intro"><h2>账号设置</h2><p>自动续费偏好。</p></div>
-              <label class="profile-switch"><input id="autoRenewToggle" type="checkbox" data-profile-setting="autoRenew">自动续费</label>
-            </section>
-
-            <section class="panel profile-panel session-profile-panel">
-              <div class="form-intro"><h2>账号会话</h2><p>退出当前设备上的登录状态。</p></div>
+            <details class="panel profile-panel session-profile-panel">
+              <summary><span>账号会话</span><small>退出当前设备上的登录状态</small></summary>
               <button id="logoutBtn" type="button" class="ghost danger hidden">退出登录</button>
-            </section>
-
-            <section id="checkinPanel" class="panel profile-panel checkin-panel">
-              <div class="form-intro"><h2>每日签到</h2><p>仅开通有效套餐的用户可领取每日流量。</p></div>
-              <div id="checkinStatus" class="checkin-status-card">正在读取签到状态…</div>
-              <button type="button" data-checkin>立即签到</button>
-              <div id="checkinRecentList" class="checkin-recent-list"><span class="meta">暂无签到记录</span></div>
-            </section>
+            </details>
 
             <form id="profileGiftCardForm" class="panel profile-panel gift-card-panel">
               <div class="form-intro"><h2>礼品卡兑换</h2><p>输入礼品卡卡密，兑换后余额会立即入账。</p></div>
@@ -265,8 +252,8 @@
               <button type="submit">修改密码</button>
             </form>
 
-            <section class="panel profile-panel subscription-profile-panel">
-              <div class="form-intro"><h2>订阅管理</h2><p id="profileSubscriptionInfo">订阅信息会在开通后显示。</p></div>
+            <details class="panel profile-panel subscription-profile-panel">
+              <summary><span>订阅信息</span><small id="profileSubscriptionInfo">订阅信息会在开通后显示</small></summary>
               <div class="profile-subscription-stats">
                 <span><small>状态</small><strong id="profileSubStatus">-</strong></span>
                 <span><small>到期时间</small><strong id="profileSubExpire">-</strong></span>
@@ -287,7 +274,7 @@
                   <button type="button" class="client-import-button" data-import-client="hiddify"><span>Hiddify</span><small>通用</small></button>
                 </div>
               </div>
-            </section>
+            </details>
           </div>
         </section>
 
@@ -326,7 +313,6 @@
         <section id="ticketsView" class="view tickets-workspace hidden">
           <div class="page-heading">
             <div><p class="eyebrow">SUPPORT</p><h1>工单帮助</h1><p>提交节点、充值、订阅相关问题，管理员可在后台回复并关闭。</p></div>
-            <button type="button" class="ghost" data-view="guide">查看教程</button>
           </div>
           <div class="tickets-layout">
             <form id="ticketForm" class="panel ticket-form user-only hidden">
@@ -353,14 +339,14 @@
           </div>
           <div class="recharge-card-layout">
             <div class="panel recharge-admin-panel">
-              <div class="form-intro"><h2>生成充值卡</h2><p>新卡会加密保存完整卡密，列表默认脱敏展示。</p></div>
+              <div class="form-intro"><h2>生成充值卡</h2><p>生成后请立即保存本次展示的完整卡密；未配置密钥时，后续列表只能脱敏查看。</p></div>
               <form id="rechargeCardForm" class="inline-form">
                 <label>面额（元）<input name="amount_yuan" type="number" min="0.01" step="0.01" required></label>
                 <label>数量<input name="count" type="number" min="1" max="100" value="1" required></label>
                 <button type="submit">生成充值卡</button>
               </form>
               <pre id="generatedCardCodes" class="generated-codes hidden"></pre>
-              <p class="form-note">如果未配置 RECHARGE_CARD_SECRET，后端会拒绝生成可查看完整卡密的新卡。</p>
+              <p class="form-note">如果未配置 RECHARGE_CARD_SECRET，仍可生成充值卡，但小眼睛无法再次查看完整卡密。</p>
             </div>
             <section class="panel recharge-card-list-panel">
               <div class="form-intro"><h2>充值卡列表</h2><p>旧卡无法恢复完整卡密；新卡可用小眼睛查看并一键复制。</p></div>
@@ -409,20 +395,35 @@
             <label class="check"><input name="active_plan_only" type="checkbox" checked>仅开通套餐用户</label>
             <button type="submit">保存签到配置</button>
           </form>
+          <form id="tutorialForm" class="panel compact-form tutorial-form">
+            <div class="form-intro"><h2>使用教程</h2><p>按平台维护给客户看的教程。正文支持换行、链接和图片地址；上传图片会转换为可保存的 data URL。</p></div>
+            <input name="id" type="hidden">
+            <label>平台分类<input name="platform" maxlength="60" placeholder="Windows / Android / iOS / macOS" required></label>
+            <label>教程标题<input name="title" maxlength="120" placeholder="Clash Verge 一键导入" required></label>
+            <label>排序<input name="sort_order" type="number" step="1" value="0"></label>
+            <label>图片地址<input name="image_url" placeholder="https://... 或上传图片自动填入"></label>
+            <label>上传图片<input id="tutorialImageInput" type="file" accept="image/*"></label>
+            <label class="check"><input name="enabled" type="checkbox" checked>前台展示</label>
+            <label class="wide-field">正文<textarea name="content" rows="6" maxlength="6000" placeholder="步骤 1：复制订阅链接&#10;步骤 2：打开客户端导入。" required></textarea></label>
+            <button type="submit">保存教程</button>
+          </form>
           <div class="split lists-split">
             <div class="list-panel"><div class="list-heading"><div><h2>套餐列表</h2><span>商城实时读取</span></div><button id="newPlanBtn" type="button">新增套餐</button></div><div id="planList" class="row-list"></div></div>
             <div class="list-panel"><div class="list-heading"><div><h2>面板列表</h2><span>凭据仅本机保存</span></div><button id="newPanelBtn" type="button">新增面板</button></div><div id="panelList" class="row-list"></div></div>
           </div>
+          <section class="list-panel tutorial-list-panel">
+            <div class="list-heading"><div><h2>教程列表</h2><span>分类展示给客户</span></div><button type="button" class="ghost" data-reset-tutorial-form>清空表单</button></div>
+            <div id="tutorialList" class="tutorial-list row-list"></div>
+          </section>
         </section>
       </main>
     </div>
 
     <nav id="mobileNav" class="mobile-nav" aria-label="移动端导航">
-      <button type="button" class="active" data-view="home"><span>首页</span></button>
-      <button type="button" data-view="storefront"><span>商城</span></button>
+      <button type="button" class="active" data-view="storefront"><span>商城</span></button>
       <button type="button" data-view="nodeStatus"><span>节点</span></button>
       <button type="button" data-view="guide"><span>教程</span></button>
-      <button type="button" class="user-only hidden" data-view="account"><span>订阅</span></button>
+      <button type="button" class="user-only hidden" data-view="account"><span>仪表盘</span></button>
       <button type="button" class="user-only hidden" data-view="tickets"><span>工单</span></button>
       <button type="button" class="admin-only hidden" data-view="admin"><span>用户</span></button>
       <button type="button" class="admin-only hidden" data-view="tickets"><span>工单</span></button>
@@ -442,12 +443,12 @@
         <div class="auth-tabs" role="tablist" aria-label="账号操作">
           <button type="button" class="active" role="tab" aria-selected="true" data-auth-tab="login">登录</button>
           <button type="button" role="tab" aria-selected="false" data-auth-tab="register">注册</button>
-          <button type="button" role="tab" aria-selected="false" data-auth-tab="forgot">忘记密码</button>
         </div>
         <form id="loginForm" class="auth-form" data-auth-panel="login">
           <label>邮箱<input name="email" type="email" autocomplete="email" placeholder="name@example.com" required></label>
           <label>密码<span class="password-field"><input name="password" type="password" autocomplete="current-password" required><button type="button" class="password-toggle" data-toggle-password>显示</button></span></label>
           <button type="submit" class="wide-button">登录并继续</button>
+          <p class="auth-help-line">忘记密码？<button type="button" class="link-button" data-auth-tab="forgot">点击这里处理</button></p>
         </form>
         <form id="registerForm" class="auth-form hidden" data-auth-panel="register">
           <label>邮箱<input name="email" type="email" autocomplete="email" placeholder="name@example.com" required></label>
@@ -470,8 +471,11 @@
         <input name="id" type="hidden">
         <label>名称<input name="name" required placeholder="300G 月付"></label>
         <div class="form-columns"><label>价格（元）<input name="price_yuan" type="number" min="0" step="0.01" required></label><label>总量 GB<input name="quota_gb" type="number" min="0" step="1" required></label></div>
-        <label>有效天数<input name="duration_days" type="number" min="1" step="1" required></label>
+        <div class="form-columns"><label>商品类型<select name="product_type"><option value="subscription">套餐：时长 + 流量</option><option value="traffic_pack">流量包：加流量</option><option value="time_pack">时长包：延长时间</option><option value="reset_pack">流量重置包</option></select></label><label>商品分类<input name="category" maxlength="80" placeholder="月付套餐 / 流量包 / 工具包"></label></div>
+        <label>有效天数<input name="duration_days" type="number" min="0" step="1" required></label>
         <label>允许标签<input name="allowed_tags" placeholder="kr,premium"></label>
+        <label>商品描述<textarea name="description" rows="3" maxlength="1000" placeholder="告诉客户这个商品适合什么场景"></textarea></label>
+        <label>购买提示<textarea name="purchase_notice" rows="3" maxlength="1000" placeholder="例如：购买新套餐会替换旧套餐，剩余流量和时长不保留。"></textarea></label>
         <label class="check"><input name="enabled" type="checkbox" checked>启用</label>
         <div class="dialog-actions"><button type="button" class="ghost" data-close-dialog="planDialog">取消</button><button id="planSubmitBtn" type="submit">保存套餐</button></div>
       </form>

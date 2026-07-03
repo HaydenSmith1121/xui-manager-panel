@@ -18,6 +18,16 @@ from .billing import bytes_from_gb
 from .vless import parse_vless_template, positive_finite_float, positive_int, validate_target_nodes
 
 
+SUPPORTED_PRODUCT_TYPES = {"subscription", "traffic_pack", "time_pack", "reset_pack"}
+
+PRODUCT_TRANSACTION_LABELS = {
+    "subscription": "购买套餐",
+    "traffic_pack": "购买流量包",
+    "time_pack": "购买时长包",
+    "reset_pack": "购买流量重置包",
+}
+
+
 class Database:
     def __init__(self, path: str | Path):
         self.path = Path(path)
@@ -53,6 +63,10 @@ class Database:
                     allowed_tags text not null default '[]',
                     require_approval integer not null default 1,
                     price_cents integer not null default 0,
+                    product_type text not null default 'subscription',
+                    category text not null default '套餐',
+                    description text not null default '',
+                    purchase_notice text not null default '',
                     enabled integer not null default 1,
                     created_at integer not null
                 );
@@ -165,6 +179,18 @@ class Database:
                     foreign key(user_id) references users(id) on delete set null
                 );
 
+                create table if not exists tutorials (
+                    id integer primary key autoincrement,
+                    platform text not null default '通用',
+                    title text not null,
+                    content text not null,
+                    image_url text not null default '',
+                    enabled integer not null default 1,
+                    sort_order integer not null default 0,
+                    created_at integer not null,
+                    updated_at integer not null
+                );
+
                 create table if not exists usage_records (
                     id integer primary key autoincrement,
                     user_id integer not null,
@@ -248,9 +274,16 @@ class Database:
 
                 create index if not exists idx_ticket_replies_ticket_created
                 on ticket_replies(ticket_id, created_at, id);
+
+                create index if not exists idx_tutorials_platform_sort
+                on tutorials(enabled, platform, sort_order, id);
                 """
             )
             self._ensure_column(conn, "plans", "price_cents", "integer not null default 0")
+            self._ensure_column(conn, "plans", "product_type", "text not null default 'subscription'")
+            self._ensure_column(conn, "plans", "category", "text not null default '套餐'")
+            self._ensure_column(conn, "plans", "description", "text not null default ''")
+            self._ensure_column(conn, "plans", "purchase_notice", "text not null default ''")
             self._ensure_column(conn, "users", "balance_cents", "integer not null default 0")
             self._ensure_column(conn, "users", "admin_note", "text not null default ''")
             self._ensure_column(conn, "users", "is_priority", "integer not null default 0")
@@ -292,10 +325,18 @@ class Database:
         require_approval: bool,
         enabled: bool = True,
         price_cents: int = 0,
+        product_type: str = "subscription",
+        category: str = "套餐",
+        description: str = "",
+        purchase_notice: str = "",
     ) -> int:
         name = name.strip()
         if not name:
             raise ValueError("plan name is required")
+        product_type = self._normalize_product_type(product_type)
+        category = self._normalize_text(category, "套餐", 40)
+        description = self._normalize_text(description, "", 1000)
+        purchase_notice = self._normalize_text(purchase_notice, "", 1000)
         with self.session() as conn:
             conn.execute("begin immediate")
             existing = conn.execute("select id from plans where lower(name)=lower(?)", (name,)).fetchone()
@@ -303,8 +344,10 @@ class Database:
                 raise ValueError("plan name already exists")
             cur = conn.execute(
                 """
-                insert into plans(name, quota_bytes, duration_days, allowed_tags, require_approval, price_cents, enabled, created_at)
-                values (?, ?, ?, ?, ?, ?, ?, ?)
+                insert into plans(
+                    name, quota_bytes, duration_days, allowed_tags, require_approval,
+                    price_cents, product_type, category, description, purchase_notice, enabled, created_at
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     name,
@@ -313,6 +356,10 @@ class Database:
                     json.dumps(allowed_tags),
                     int(require_approval),
                     max(int(price_cents), 0),
+                    product_type,
+                    category,
+                    description,
+                    purchase_notice,
                     int(enabled),
                     int(time.time()),
                 ),
@@ -329,8 +376,18 @@ class Database:
         require_approval: bool,
         enabled: bool = True,
         price_cents: int = 0,
+        product_type: str = "subscription",
+        category: str = "套餐",
+        description: str = "",
+        purchase_notice: str = "",
     ) -> dict[str, Any]:
         name = name.strip()
+        if not name:
+            raise ValueError("plan name is required")
+        product_type = self._normalize_product_type(product_type)
+        category = self._normalize_text(category, "套餐", 40)
+        description = self._normalize_text(description, "", 1000)
+        purchase_notice = self._normalize_text(purchase_notice, "", 1000)
         with self.session() as conn:
             existing = conn.execute(
                 "select id from plans where lower(name)=lower(?) and id<>?",
@@ -341,7 +398,8 @@ class Database:
             conn.execute(
                 """
                 update plans
-                set name=?, quota_bytes=?, duration_days=?, allowed_tags=?, require_approval=?, price_cents=?, enabled=?
+                set name=?, quota_bytes=?, duration_days=?, allowed_tags=?, require_approval=?,
+                    price_cents=?, product_type=?, category=?, description=?, purchase_notice=?, enabled=?
                 where id=?
                 """,
                 (
@@ -351,6 +409,10 @@ class Database:
                     json.dumps(allowed_tags),
                     int(require_approval),
                     max(int(price_cents), 0),
+                    product_type,
+                    category,
+                    description,
+                    purchase_notice,
                     int(enabled),
                     int(plan_id),
                 ),
@@ -557,43 +619,60 @@ class Database:
             plan = conn.execute("select * from plans where id=? and enabled=1", (int(plan_id),)).fetchone()
             if not plan:
                 raise ValueError("套餐不存在或已停售")
+            plan = self._decode_plan(plan)
+            product_type = plan["product_type"]
+            has_active_subscription = (
+                user["status"] == "active"
+                and user["plan_id"] is not None
+                and int(user["expire_at"] or 0) > now
+            )
+            if product_type != "subscription" and not has_active_subscription:
+                raise ValueError("需要先开通有效套餐后才能购买此商品")
             price_cents = int(plan["price_cents"] or 0)
             balance_cents = int(user["balance_cents"] or 0)
             if balance_cents < price_cents:
                 raise ValueError("余额不足，请先使用充值卡充值")
             new_balance = balance_cents - price_cents
-            expire_at = now + int(plan["duration_days"]) * 86400
-            conn.execute(
-                """
-                update users
-                set balance_cents=?, status='active', plan_id=?, quota_bytes=?, expire_at=?, approved_at=?
-                where id=?
-                """,
-                (new_balance, int(plan_id), int(plan["quota_bytes"]), expire_at, now, int(user_id)),
-            )
-            conn.execute("delete from usage_records where user_id=?", (int(user_id),))
-            conn.execute(
-                """
-                insert or ignore into usage_ledgers(managed_client_id, rate, reset_pending, updated_at)
-                select id, rate, 1, ? from managed_clients where user_id=?
-                """,
-                (now, int(user_id)),
-            )
-            conn.execute(
-                """
-                update usage_ledgers
-                set raw_up=0, raw_down=0, weighted_up=0, weighted_down=0, reset_pending=1, updated_at=?
-                where managed_client_id in (select id from managed_clients where user_id=?)
-                """,
-                (now, int(user_id)),
-            )
+            if product_type == "subscription":
+                expire_at = now + int(plan["duration_days"]) * 86400
+                conn.execute(
+                    """
+                    update users
+                    set balance_cents=?, status='active', plan_id=?, quota_bytes=?, expire_at=?, approved_at=?
+                    where id=?
+                    """,
+                    (new_balance, int(plan_id), int(plan["quota_bytes"]), expire_at, now, int(user_id)),
+                )
+                self._reset_user_usage(conn, int(user_id), now)
+            elif product_type == "traffic_pack":
+                conn.execute(
+                    """
+                    update users
+                    set balance_cents=?, quota_bytes=?
+                    where id=?
+                    """,
+                    (new_balance, int(user["quota_bytes"] or 0) + int(plan["quota_bytes"] or 0), int(user_id)),
+                )
+            elif product_type == "time_pack":
+                base_expire_at = max(int(user["expire_at"] or 0), now)
+                conn.execute(
+                    """
+                    update users
+                    set balance_cents=?, expire_at=?
+                    where id=?
+                    """,
+                    (new_balance, base_expire_at + int(plan["duration_days"]) * 86400, int(user_id)),
+                )
+            elif product_type == "reset_pack":
+                conn.execute("update users set balance_cents=? where id=?", (new_balance, int(user_id)))
+                self._reset_user_usage(conn, int(user_id), now)
             self._insert_balance_transaction(
                 conn,
                 int(user_id),
                 -price_cents,
                 new_balance,
                 "purchase",
-                f"购买套餐：{plan['name']}",
+                f"{PRODUCT_TRANSACTION_LABELS[product_type]}：{plan['name']}",
                 None,
                 int(user_id),
                 now,
@@ -1268,23 +1347,66 @@ class Database:
     def reset_managed_usage(self, user_id: int) -> None:
         now = int(time.time())
         with self.session() as conn:
-            conn.execute(
-                """
-                insert or ignore into usage_ledgers(managed_client_id, rate, reset_pending, updated_at)
-                select id, rate, 1, ? from managed_clients where user_id=?
-                """,
-                (now, int(user_id)),
-            )
-            conn.execute(
-                """
-                update usage_ledgers
-                set raw_up=0, raw_down=0, weighted_up=0, weighted_down=0, updated_at=?
-                where managed_client_id in (
-                    select id from managed_clients where user_id=?
+            self._reset_user_usage(conn, int(user_id), now)
+
+    def list_tutorials(self, enabled_only: bool = False) -> list[dict[str, Any]]:
+        sql = "select * from tutorials"
+        params: tuple[Any, ...] = ()
+        if enabled_only:
+            sql += " where enabled=1"
+        sql += " order by sort_order, platform, id"
+        with self.session() as conn:
+            return [self._decode_tutorial(row) for row in conn.execute(sql, params)]
+
+    def save_tutorial(
+        self,
+        title: str,
+        platform: str,
+        content: str,
+        image_url: str = "",
+        enabled: bool = True,
+        sort_order: int = 0,
+        tutorial_id: int | None = None,
+    ) -> dict[str, Any]:
+        platform = self._normalize_text(platform, "通用", 40)
+        title = self._normalize_text(title, "", 120)
+        content = self._normalize_text(content, "", 8000)
+        image_url = self._normalize_text(image_url, "", 200000)
+        if not title:
+            raise ValueError("教程标题不能为空")
+        if not content:
+            raise ValueError("教程内容不能为空")
+        now = int(time.time())
+        with self.session() as conn:
+            if tutorial_id:
+                result = conn.execute(
+                    """
+                    update tutorials
+                    set platform=?, title=?, content=?, image_url=?, enabled=?, sort_order=?, updated_at=?
+                    where id=?
+                    """,
+                    (platform, title, content, image_url, int(bool(enabled)), int(sort_order), now, int(tutorial_id)),
                 )
-                """,
-                (now, int(user_id)),
-            )
+                if result.rowcount == 0:
+                    raise ValueError("教程不存在")
+                row_id = int(tutorial_id)
+            else:
+                cur = conn.execute(
+                    """
+                    insert into tutorials(platform, title, content, image_url, enabled, sort_order, created_at, updated_at)
+                    values (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (platform, title, content, image_url, int(bool(enabled)), int(sort_order), now, now),
+                )
+                row_id = int(cur.lastrowid)
+            row = conn.execute("select * from tutorials where id=?", (row_id,)).fetchone()
+            return self._decode_tutorial(row)
+
+    def delete_tutorial(self, tutorial_id: int) -> None:
+        with self.session() as conn:
+            result = conn.execute("delete from tutorials where id=?", (int(tutorial_id),))
+            if result.rowcount == 0:
+                raise ValueError("教程不存在")
 
     def checkin_settings(self) -> dict[str, Any]:
         enabled = str(self.get_setting("checkin_enabled", "false")).lower() in {"1", "true", "yes", "on"}
@@ -1538,8 +1660,49 @@ class Database:
         data["allowed_tags"] = json.loads(data.get("allowed_tags") or "[]")
         data["require_approval"] = bool(data["require_approval"])
         data["enabled"] = bool(data["enabled"])
+        data["product_type"] = data.get("product_type") or "subscription"
+        if data["product_type"] not in SUPPORTED_PRODUCT_TYPES:
+            data["product_type"] = "subscription"
+        data["category"] = data.get("category") or "套餐"
+        data["description"] = data.get("description") or ""
+        data["purchase_notice"] = data.get("purchase_notice") or ""
         return data
 
+    def _decode_tutorial(self, row: sqlite3.Row) -> dict[str, Any]:
+        data = dict(row)
+        data["enabled"] = bool(data["enabled"])
+        return data
+
+    def _normalize_product_type(self, product_type: str) -> str:
+        normalized = str(product_type or "subscription").strip().lower()
+        if normalized not in SUPPORTED_PRODUCT_TYPES:
+            raise ValueError("invalid product type")
+        return normalized
+
+    def _normalize_text(self, value: Any, default: str, limit: int) -> str:
+        text = str(value if value is not None else default).strip()
+        if not text:
+            text = default
+        return text[:limit]
+
+    def _reset_user_usage(self, conn: sqlite3.Connection, user_id: int, now: int) -> None:
+        conn.execute("delete from usage_records where user_id=?", (int(user_id),))
+        conn.execute(
+            """
+            update usage_ledgers
+            set raw_up=0, raw_down=0, weighted_up=0, weighted_down=0, updated_at=?
+            where managed_client_id in (select id from managed_clients where user_id=?)
+            """,
+            (now, int(user_id)),
+        )
+
+        conn.execute(
+            """
+            insert or ignore into usage_ledgers(managed_client_id, rate, reset_pending, updated_at)
+            select id, rate, 1, ? from managed_clients where user_id=?
+            """,
+            (now, int(user_id)),
+        )
     def _decode_node(self, row: sqlite3.Row) -> dict[str, Any]:
         data = dict(row)
         data["tags"] = json.loads(data.get("tags") or "[]")

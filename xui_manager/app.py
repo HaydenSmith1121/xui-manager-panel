@@ -44,6 +44,8 @@ class XuiManagerApp:
         try:
             if method == "GET" and path == "/api/plans":
                 return self.json_response({"plans": self.db.list_plans(enabled_only=True)})
+            if method == "GET" and path == "/api/tutorials":
+                return self.json_response({"tutorials": self.db.list_tutorials(enabled_only=True)})
             if method == "GET" and path == "/api/nodes/status":
                 return self.json_response({"nodes": [public_node_status(node) for node in self.db.list_nodes(enabled_only=True)]})
             if method == "POST" and path == "/api/register":
@@ -171,8 +173,6 @@ class XuiManagerApp:
         if method == "POST" and path == "/api/admin/recharge-cards":
             admin = self.user_from_headers(headers)
             secret = recharge_card_secret()
-            if not secret:
-                raise ValueError("RECHARGE_CARD_SECRET 未配置，无法生成可查看完整卡密的新充值卡")
             cards = self.db.create_recharge_cards(
                 yuan_to_cents(payload["amount_yuan"]), int(payload.get("count", 1)), admin["id"], secret
             )
@@ -242,12 +242,32 @@ class XuiManagerApp:
                 False,
                 bool(payload.get("enabled", True)),
                 yuan_to_cents(payload.get("price_yuan", 0)),
+                payload.get("product_type", "subscription"),
+                payload.get("category", "套餐"),
+                payload.get("description", ""),
+                payload.get("purchase_notice", ""),
             )
             if payload.get("id"):
                 return self.json_response({"plan": self.db.update_plan(int(payload["id"]), *args)})
             return self.json_response({"id": self.db.create_plan(*args)})
         if method == "POST" and path == "/api/admin/plans/delete":
             self.db.delete_plan(int(payload["id"]))
+            return self.json_response({"deleted": True})
+        if method == "GET" and path == "/api/admin/tutorials":
+            return self.json_response({"tutorials": self.db.list_tutorials()})
+        if method == "POST" and path == "/api/admin/tutorials":
+            tutorial = self.db.save_tutorial(
+                payload["title"],
+                payload.get("platform", "通用"),
+                payload["content"],
+                payload.get("image_url", ""),
+                bool(payload.get("enabled", True)),
+                int(payload.get("sort_order", 0)),
+                int(payload["id"]) if payload.get("id") else None,
+            )
+            return self.json_response({"tutorial": tutorial})
+        if method == "POST" and path == "/api/admin/tutorials/delete":
+            self.db.delete_tutorial(int(payload["id"]))
             return self.json_response({"deleted": True})
         if method == "GET" and path == "/api/admin/panels":
             return self.json_response({"panels": [public_panel(panel) for panel in self.db.list_panels()]})

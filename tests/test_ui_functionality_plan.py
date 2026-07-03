@@ -69,7 +69,7 @@ class UiFunctionalityPlanTests(unittest.TestCase):
         self.assertEqual(legacy_reveal.status, 400)
         self.assertIn("无法查看完整卡密", legacy_reveal.body)
 
-    def test_generating_revealable_recharge_card_requires_secret(self):
+    def test_admin_can_generate_recharge_card_without_secret_but_cannot_reveal_it(self):
         with patch.dict(os.environ, {"RECHARGE_CARD_SECRET": ""}):
             app = XuiManagerApp(Path(self.tmp.name) / "missing-secret.db")
             admin = app.db.seed_admin("admin2@example.com", "password123")
@@ -88,9 +88,111 @@ class UiFunctionalityPlanTests(unittest.TestCase):
             response = app.handle_json(
                 "POST", "/api/admin/recharge-cards", headers, json.dumps({"amount_yuan": 5, "count": 1})
             )
+            payload = json.loads(response.body)
+            listed = app.handle_json("GET", "/api/admin/recharge-cards", headers, "")
+            reveal = app.handle_json(
+                "POST",
+                "/api/admin/recharge-cards/reveal",
+                headers,
+                json.dumps({"id": payload["cards"][0]["id"]}),
+            )
 
-        self.assertEqual(response.status, 400)
-        self.assertIn("RECHARGE_CARD_SECRET", response.body)
+        self.assertEqual(response.status, 200)
+        self.assertTrue(payload["cards"][0]["code"].startswith("HXY-"))
+        self.assertFalse(json.loads(listed.body)["cards"][0]["can_reveal"])
+        self.assertEqual(reveal.status, 400)
+        self.assertIn("无法查看完整卡密", reveal.body)
+
+    def test_admin_plan_api_persists_product_metadata(self):
+        created = self.post_admin(
+            "/api/admin/plans",
+            {
+                "name": "入门套餐",
+                "price_yuan": 19.9,
+                "quota_gb": 100,
+                "duration_days": 30,
+                "allowed_tags": "hk,jp",
+                "enabled": True,
+                "product_type": "subscription",
+                "category": "月付套餐",
+                "description": "适合第一次使用的新用户。",
+                "purchase_notice": "购买新套餐会替换旧套餐，剩余流量和时长不保留。",
+            },
+        )
+        plan_id = json.loads(created.body)["id"]
+        updated = self.post_admin(
+            "/api/admin/plans",
+            {
+                "id": plan_id,
+                "name": "流量重置包",
+                "price_yuan": 5,
+                "quota_gb": 0,
+                "duration_days": 0,
+                "allowed_tags": "",
+                "enabled": True,
+                "product_type": "reset_pack",
+                "category": "工具包",
+                "description": "清空本周期已用流量。",
+                "purchase_notice": "不会延长到期时间，也不会增加总流量。",
+            },
+        )
+        listed = self.app.handle_json("GET", "/api/admin/plans", self.admin_headers, "")
+        plan = json.loads(listed.body)["plans"][0]
+
+        self.assertEqual(created.status, 200)
+        self.assertEqual(updated.status, 200)
+        self.assertEqual(plan["product_type"], "reset_pack")
+        self.assertEqual(plan["category"], "工具包")
+        self.assertEqual(plan["description"], "清空本周期已用流量。")
+        self.assertEqual(plan["purchase_notice"], "不会延长到期时间，也不会增加总流量。")
+
+    def test_admin_can_manage_tutorials_and_public_only_lists_enabled_items(self):
+        created = self.post_admin(
+            "/api/admin/tutorials",
+            {
+                "platform": "Windows",
+                "title": "Clash Verge 导入订阅",
+                "content": "1. 复制订阅链接\n2. 打开客户端导入。",
+                "image_url": "data:image/png;base64,AA==",
+                "enabled": True,
+                "sort_order": 10,
+            },
+        )
+        tutorial_id = json.loads(created.body)["tutorial"]["id"]
+        disabled = self.post_admin(
+            "/api/admin/tutorials",
+            {
+                "platform": "Android",
+                "title": "待发布教程",
+                "content": "草稿内容",
+                "enabled": False,
+                "sort_order": 20,
+            },
+        )
+        public = self.app.handle_json("GET", "/api/tutorials", {}, "")
+        admin_list = self.app.handle_json("GET", "/api/admin/tutorials", self.admin_headers, "")
+        updated = self.post_admin(
+            "/api/admin/tutorials",
+            {
+                "id": tutorial_id,
+                "platform": "Windows",
+                "title": "Windows 一键导入教程",
+                "content": "点击一键导入按钮，按客户端提示确认。",
+                "image_url": "data:image/png;base64,BB==",
+                "enabled": True,
+                "sort_order": 1,
+            },
+        )
+        deleted = self.post_admin("/api/admin/tutorials/delete", {"id": tutorial_id})
+
+        self.assertEqual(created.status, 200)
+        self.assertEqual(disabled.status, 200)
+        self.assertEqual(public.status, 200)
+        self.assertEqual([item["title"] for item in json.loads(public.body)["tutorials"]], ["Clash Verge 导入订阅"])
+        self.assertEqual(len(json.loads(admin_list.body)["tutorials"]), 2)
+        self.assertEqual(json.loads(updated.body)["tutorial"]["title"], "Windows 一键导入教程")
+        self.assertEqual(deleted.status, 200)
+        self.assertEqual(json.loads(self.app.handle_json("GET", "/api/tutorials", {}, "").body)["tutorials"], [])
 
     def test_public_node_status_exposes_enabled_nodes_latency_and_rate(self):
         enabled_id = self.app.db.create_node("香港 A", "vless://example", 2.5, ["hk", "premium"], True)
@@ -208,9 +310,37 @@ class UiSurfaceContractTests(unittest.TestCase):
             'id="rechargeCardsView"',
             'id="forgotPasswordPanel"',
             'id="checkinPanel"',
+            'id="tutorialForm"',
+            'id="tutorialList"',
+            'id="publicTutorialList"',
+            'name="product_type"',
+            'name="category"',
+            'name="description"',
+            'name="purchase_notice"',
         ]:
             self.assertIn(marker, index_html)
         self.assertNotIn('<div class="session">', index_html)
+        desktop_nav_start = index_html.index('<nav class="nav">')
+        desktop_nav = index_html[desktop_nav_start:index_html.index('</nav>', desktop_nav_start)]
+        mobile_nav_start = index_html.index('id="mobileNav"')
+        mobile_nav = index_html[mobile_nav_start:index_html.index('</nav>', mobile_nav_start)]
+        account_start = index_html.index('id="accountView"')
+        profile_start = index_html.index('id="profileView"')
+        profile_block = index_html[profile_start:index_html.index('id="adminView"', profile_start)]
+        self.assertNotIn('data-view="home"><span>首页</span>', desktop_nav)
+        self.assertNotIn('data-view="home"><span>首页</span>', mobile_nav)
+        self.assertIn('class="brand brand-button" type="button" data-view="home"', index_html)
+        self.assertIn('<span>仪表盘</span>', desktop_nav)
+        self.assertNotIn('<span>我的订阅</span>', desktop_nav)
+        self.assertLess(account_start, index_html.index('id="checkinPanel"'))
+        self.assertLess(index_html.index('id="checkinPanel"'), profile_start)
+        self.assertNotIn('id="autoRenewToggle"', index_html)
+        self.assertNotIn('自动续费', index_html)
+        self.assertNotIn('id="copySubBtn"', index_html)
+        self.assertNotIn('class="storefront-footer"', index_html)
+        self.assertNotIn('无需登录即可浏览，购买时再验证账号与余额。', index_html)
+        self.assertNotIn('data-view="guide">查看教程</button>', index_html)
+        self.assertIn('profile-list', index_html)
         self.assertIn('data-view="nodeStatus"', index_html)
         self.assertIn('data-view="rechargeCards"', index_html)
         self.assertIn('data-view="tickets"', index_html)
@@ -218,8 +348,17 @@ class UiSurfaceContractTests(unittest.TestCase):
         self.assertIn('data-copy-card', app_js)
         self.assertIn('/api/admin/recharge-cards/reveal', app_js)
         self.assertIn('/api/checkin', app_js)
+        self.assertIn('/api/tutorials', app_js)
+        self.assertIn('/api/admin/tutorials', app_js)
         self.assertIn('/api/nodes/status', app_js)
         self.assertIn('/api/tickets', app_js)
+        self.assertIn('productTypeLabel', app_js)
+        self.assertNotIn('续费 / 更换', app_js)
+        self.assertNotIn('autoRenew', app_js)
+        self.assertIn('data-copy-recommended-sub', app_js)
+        self.assertIn('renderTutorials', app_js)
+        self.assertIn('renderAdminTutorials', app_js)
         self.assertIn('.mobile-shell', app_css)
         self.assertIn('--accent-cyan', app_css)
-
+        self.assertIn('.profile-list', app_css)
+        self.assertIn('.tutorial-list', app_css)
