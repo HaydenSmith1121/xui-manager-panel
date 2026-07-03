@@ -654,6 +654,42 @@ button.danger {
   font-weight: 750;
 }
 
+.product-card {
+  align-content: start;
+}
+
+.product-type-badge {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  border-radius: 999px;
+  margin-top: 12px;
+  padding: 6px 10px;
+  color: var(--blue-dark);
+  background: #edf5ff;
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.plan-description,
+.plan-rule,
+.plan-notice {
+  margin: 12px 0 0;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+.plan-rule {
+  color: var(--ink-soft);
+  font-weight: 760;
+}
+
+.plan-notice {
+  border-radius: 16px;
+  padding: 12px;
+  background: rgba(237, 245, 255, 0.82);
+}
+
 .plan-card button {
   width: 100%;
   min-height: 50px;
@@ -859,6 +895,46 @@ button.danger {
   display: grid;
   grid-template-columns: minmax(280px, 0.95fr) minmax(320px, 1.05fr);
   gap: 18px;
+}
+
+.profile-list {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.95fr) minmax(320px, 1.05fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.profile-list details {
+  overflow: hidden;
+}
+
+.profile-list summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.profile-list summary::-webkit-details-marker {
+  display: none;
+}
+
+.profile-list summary span {
+  color: var(--ink);
+  font-weight: 950;
+}
+
+.profile-list summary small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.profile-list details[open] summary {
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 14px;
 }
 
 .profile-panel {
@@ -1582,6 +1658,30 @@ dialog.dialog-fallback-open {
   margin-top: 7px;
 }
 
+.auth-help-line {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.link-button {
+  min-height: auto;
+  padding: 0;
+  color: var(--blue-dark);
+  background: transparent;
+  box-shadow: none;
+  font: inherit;
+  font-weight: 900;
+}
+
+.link-button:hover {
+  background: transparent;
+  box-shadow: none;
+  text-decoration: underline;
+  transform: none;
+}
+
 .form-note {
   margin: -3px 0 14px;
 }
@@ -1904,6 +2004,61 @@ dialog.dialog-fallback-open {
   margin: 0;
   color: var(--muted);
   line-height: 1.7;
+}
+
+.tutorial-list {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.tutorial-platform-group {
+  display: grid;
+  gap: 12px;
+}
+
+.tutorial-platform-group h2 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: -0.035em;
+}
+
+.tutorial-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 240px);
+  gap: 16px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 48px rgba(16, 66, 132, 0.08);
+}
+
+.tutorial-card h3,
+.tutorial-admin-card h3 {
+  margin: 8px 0;
+  letter-spacing: -0.025em;
+}
+
+.tutorial-card p,
+.tutorial-admin-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.75;
+}
+
+.tutorial-image {
+  width: 100%;
+  max-height: 260px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+}
+
+.tutorial-image.small {
+  max-width: 180px;
+  max-height: 110px;
 }
 
 .tickets-layout {
@@ -2416,7 +2571,12 @@ dialog.dialog-fallback-open {
   }
 
   .profile-sections,
+  .profile-list,
   .profile-subscription-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .tutorial-card {
     grid-template-columns: 1fr;
   }
 

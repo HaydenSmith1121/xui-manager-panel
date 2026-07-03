@@ -52,12 +52,13 @@ class FrontendTests(unittest.TestCase):
 
         desktop_nav_start = index_html.index('<nav class="nav">')
         desktop_nav = index_html[desktop_nav_start:index_html.index('</nav>', desktop_nav_start)]
-        self.assertIn('data-view="home"><span>首页</span>', desktop_nav)
+        self.assertNotIn('data-view="home"><span>首页</span>', desktop_nav)
         self.assertIn('data-view="storefront"><span>商城</span>', desktop_nav)
+        self.assertIn('class="brand brand-button" type="button" data-view="home"', index_html)
 
         mobile_nav_start = index_html.index('id="mobileNav"')
         mobile_nav = index_html[mobile_nav_start:index_html.index('</nav>', mobile_nav_start)]
-        self.assertIn('data-view="home"><span>首页</span>', mobile_nav)
+        self.assertNotIn('data-view="home"><span>首页</span>', mobile_nav)
         self.assertIn('data-view="storefront"><span>商城</span>', mobile_nav)
 
         self.assertIn('view: "home"', app_js)
@@ -278,15 +279,19 @@ class FrontendTests(unittest.TestCase):
             'id="profileAvatarInput"',
             'id="expireReminderToggle"',
             'id="trafficReminderToggle"',
-            'id="autoRenewToggle"',
             'id="profileGiftCardForm"',
             'id="profileGiftCardBalance"',
             'id="profilePasswordForm"',
             'id="profileSubscriptionUrl"',
+            'class="profile-list"',
             "礼品卡兑换",
             "复制订阅链接",
         ):
             self.assertIn(marker, index_html)
+        profile_start = index_html.index('id="profileView"')
+        profile_block = index_html[profile_start:index_html.index('id="adminView"', profile_start)]
+        self.assertNotIn('id="checkinPanel"', profile_block)
+        self.assertNotIn('自动续费', profile_block)
         self.assertIn("renderProfile", app_js)
         self.assertIn("data-copy-profile-sub", app_js)
         self.assertIn("/api/me/password", app_js)
@@ -294,7 +299,7 @@ class FrontendTests(unittest.TestCase):
         self.assertIn("profileEntryLabel", app_js)
         self.assertNotIn('$("#sessionEmail")', app_js)
         self.assertIn(".profile-entry", app_css)
-        self.assertIn(".profile-sections", app_css)
+        self.assertIn(".profile-list", app_css)
         self.assertIn(".gift-card-panel", app_css)
 
     def test_user_list_has_search_filters_collapse_notes_and_balance_tools(self):

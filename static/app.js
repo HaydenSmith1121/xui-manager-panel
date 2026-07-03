@@ -5,6 +5,8 @@ const state = {
   panels: [],
   nodes: [],
   nodeStatuses: [],
+  tutorials: [],
+  adminTutorials: [],
   rechargeCards: [],
   transactions: [],
   checkin: null,
@@ -23,7 +25,7 @@ const state = {
   loadingTimer: null,
   elapsedTimer: null,
   authReturnFocus: null,
-  profilePrefs: { expireReminder: true, trafficReminder: true, autoRenew: false },
+  profilePrefs: { expireReminder: true, trafficReminder: true },
   profileAvatar: "",
 };
 
@@ -146,6 +148,27 @@ function ticketStatusText(status) {
   }[status] || status || "未知";
 }
 
+function productTypeLabel(type) {
+  return {
+    subscription: "套餐 · 时长 + 流量",
+    traffic_pack: "流量包 · 不限时长",
+    time_pack: "时长包 · 延长有效期",
+    reset_pack: "流量重置包",
+  }[type] || "套餐 · 时长 + 流量";
+}
+
+function productRuleText(plan) {
+  const type = plan?.product_type || "subscription";
+  const quota = formatBytes(plan?.quota_bytes || 0);
+  const days = Number(plan?.duration_days || 0);
+  return {
+    subscription: "购买后会立即成为当前套餐，包含 " + quota + " 流量和 " + days + " 天有效期；如果已有套餐，旧套餐剩余流量和时长会放弃。",
+    traffic_pack: "购买后只增加 " + quota + " 流量，不改变当前套餐到期时间；需要先有有效套餐。",
+    time_pack: "购买后只延长 " + days + " 天有效期，不增加流量；需要先有有效套餐。",
+    reset_pack: "购买后清空本周期已用流量，不增加总量，也不延长到期时间；需要先有有效套餐。",
+  }[type] || "购买后会按商品规则立即处理。";
+}
+
 function nodeStatusOptions(current = "unknown") {
   return ["online", "degraded", "offline", "maintenance", "unknown"]
     .map((status) => '<option value="' + status + '" ' + (status === current ? "selected" : "") + '>' + nodeStatusText(status) + '</option>')
@@ -177,7 +200,7 @@ function profileInitial() {
 }
 
 function loadProfilePrefs() {
-  const defaults = { expireReminder: true, trafficReminder: true, autoRenew: false };
+  const defaults = { expireReminder: true, trafficReminder: true };
   if (!state.me) {
     state.profilePrefs = defaults;
     state.profileAvatar = "";
@@ -209,7 +232,7 @@ function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.addEventListener("load", () => resolve(reader.result));
-    reader.addEventListener("error", () => reject(new Error("头像读取失败")));
+    reader.addEventListener("error", () => reject(new Error("图片读取失败")));
     reader.readAsDataURL(file);
   });
 }
@@ -500,14 +523,17 @@ function setView(view) {
 }
 
 async function refreshPublic() {
-  const [plans, nodeStatuses] = await Promise.all([
+  const [plans, nodeStatuses, tutorials] = await Promise.all([
     api("/api/plans", { loadingLabel: "正在读取套餐" }),
     api("/api/nodes/status", { loadingLabel: "正在读取节点状态" }),
+    api("/api/tutorials", { loadingLabel: "正在读取教程" }),
   ]);
   state.plans = plans.plans || [];
   state.nodeStatuses = nodeStatuses.nodes || [];
+  state.tutorials = tutorials.tutorials || [];
   renderPlanCatalog();
   renderNodeStatuses();
+  renderTutorials();
 }
 
 async function refreshMe() {
@@ -527,7 +553,7 @@ async function refreshMe() {
 }
 
 async function refreshAdmin() {
-  const [users, plans, panels, nodes, settings, rechargeCards, checkinSettings, adminTickets] = await Promise.all([
+  const [users, plans, panels, nodes, settings, rechargeCards, checkinSettings, adminTickets, tutorials] = await Promise.all([
     api("/api/admin/users", { loadingLabel: "正在读取后台数据" }),
     api("/api/admin/plans", { loadingLabel: "正在读取后台数据" }),
     api("/api/admin/panels", { loadingLabel: "正在读取后台数据" }),
@@ -536,6 +562,7 @@ async function refreshAdmin() {
     api("/api/admin/recharge-cards", { loadingLabel: "正在读取后台数据" }),
     api("/api/admin/checkin/settings", { loadingLabel: "正在读取后台数据" }),
     api("/api/admin/tickets", { loadingLabel: "正在读取后台数据" }),
+    api("/api/admin/tutorials", { loadingLabel: "正在读取后台数据" }),
   ]);
   state.users = users.users || [];
   state.plans = plans.plans || state.plans;
@@ -545,6 +572,7 @@ async function refreshAdmin() {
   state.rechargeCards = rechargeCards.cards || [];
   state.checkinSettings = checkinSettings.settings || {};
   state.adminTickets = adminTickets.tickets || [];
+  state.adminTutorials = tutorials.tutorials || [];
   renderAdmin();
   renderPlanCatalog();
 }
@@ -625,7 +653,9 @@ function renderAuth() {
   $("#subscriptionUrl").value = clashSubscriptionUrl;
   $("#base64SubscriptionUrl").value = subscriptionUrlForFormat("base64");
   $("#singboxSubscriptionUrl").value = subscriptionUrlForFormat("singbox");
-  $("#copySubBtn").disabled = state.me.status !== "active" || !clashSubscriptionUrl;
+  $$("[data-copy-recommended-sub]").forEach((button) => {
+    button.disabled = state.me.status !== "active" || !clashSubscriptionUrl;
+  });
   renderTransactions();
   renderProfile();
   renderImportButtons();
@@ -647,7 +677,6 @@ function renderProfile() {
   $("#profileGiftCardBalance").textContent = loggedIn ? formatMoney(state.me.balance_cents) : "¥0.00";
   $("#expireReminderToggle").checked = Boolean(state.profilePrefs.expireReminder);
   $("#trafficReminderToggle").checked = Boolean(state.profilePrefs.trafficReminder);
-  $("#autoRenewToggle").checked = Boolean(state.profilePrefs.autoRenew);
   const subscriptionUrl = subscriptionUrlForFormat("clash");
   const plan = state.plans.find((item) => Number(item.id) === Number(state.me?.plan_id));
   $("#profileSubscriptionInfo").textContent = loggedIn
@@ -680,8 +709,7 @@ function planAction(plan) {
   if (state.me.role === "admin") return { label: "管理员不可购买", disabled: true };
   if (state.me.status === "disabled") return { label: "账号已停用", disabled: true };
   if (Number(state.me.balance_cents || 0) < Number(plan.price_cents || 0)) return { label: "余额不足", disabled: true };
-  if (state.me.status === "active") return { label: "续费 / 更换", disabled: false };
-  return { label: "余额购买", disabled: false };
+  return { label: "购买此商品", disabled: false };
 }
 
 function renderPlanCatalog() {
@@ -695,16 +723,24 @@ function renderPlanCatalog() {
     .filter((plan) => plan.enabled !== false)
     .map((plan, index) => {
       const action = planAction(plan);
-      return `<article class="plan-card">
+      const type = plan.product_type || "subscription";
+      const category = plan.category || "套餐";
+      const description = plan.description || "适合按需开通，购买前请确认商品规则。";
+      const notice = plan.purchase_notice || productRuleText(plan);
+      return `<article class="plan-card product-card product-type-${escapeHtml(type)}">
         <div>
-          <span class="plan-index">PLAN ${String(index + 1).padStart(2, "0")}</span>
+          <span class="plan-index">${escapeHtml(category)} · PRODUCT ${String(index + 1).padStart(2, "0")}</span>
+          <span class="product-type-badge">${escapeHtml(productTypeLabel(type))}</span>
           <h3>${escapeHtml(plan.name)}</h3>
           <p class="plan-price">${formatMoney(plan.price_cents)}</p>
           <p class="plan-quota">${escapeHtml(formatBytes(plan.quota_bytes))}</p>
+          <p class="plan-description">${escapeHtml(description)}</p>
           <div class="plan-meta">
-            <span>${plan.duration_days} 天有效</span>
-            <span>余额即时开通</span>
+            <span>${Number(plan.duration_days || 0)} 天有效</span>
+            <span>${escapeHtml(category)}</span>
           </div>
+          <p class="plan-rule">${escapeHtml(productRuleText(plan))}</p>
+          <p class="plan-notice">${escapeHtml(notice)}</p>
         </div>
         <button type="button" data-apply-plan="${plan.id}" ${action.disabled ? "disabled" : ""}>${action.label}</button>
       </article>`;
@@ -818,6 +854,15 @@ function renderSettings() {
   form.elements.subscription_title.value = state.settings.subscription_title || "";
 }
 
+function resetTutorialForm() {
+  const form = $("#tutorialForm");
+  if (!form) return;
+  form.reset();
+  form.elements.id.value = "";
+  form.elements.enabled.checked = true;
+  form.elements.sort_order.value = "0";
+}
+
 function renderInboundOptions(inbounds) {
   state.inbounds = inbounds || [];
   $("#inboundOptions").innerHTML = state.inbounds
@@ -859,6 +904,9 @@ function resetFormMode(form, title, submit, label, submitText) {
 
 function resetPlanForm() {
   resetFormMode($("#planForm"), $("#planFormTitle"), $("#planSubmitBtn"), "套餐", "保存套餐");
+  $("#planForm").elements.product_type.value = "subscription";
+  $("#planForm").elements.category.value = "套餐";
+  $("#planForm").elements.duration_days.value = "30";
   $("#planForm").elements.enabled.checked = true;
 }
 
@@ -965,6 +1013,7 @@ function renderAdmin() {
   renderSettings();
   renderCheckinSettings();
   renderAdminTickets();
+  renderAdminTutorials();
 }
 
 function renderRechargeCards() {
@@ -994,17 +1043,19 @@ function renderCheckout() {
   if ($("#checkoutPlanQuota")) $("#checkoutPlanQuota").textContent = plan ? formatBytes(plan.quota_bytes) : "-";
   if ($("#checkoutPlanDuration")) $("#checkoutPlanDuration").textContent = plan ? plan.duration_days + " 天" : "-";
   if ($("#checkoutBalanceText")) $("#checkoutBalanceText").textContent = state.me ? formatMoney(balance) : "请先登录";
+  if ($(".checkout-label")) $(".checkout-label").textContent = plan ? productTypeLabel(plan.product_type) : "所选商品";
+  if ($(".checkout-confirm .form-intro p")) $(".checkout-confirm .form-intro p").textContent = plan ? (plan.purchase_notice || productRuleText(plan)) : "点击确认后将从当前余额扣款，并立即处理所选商品。";
   const button = $("#checkoutPurchaseBtn");
   if (!button) return;
   const disabledReason = !plan ? "请先选择套餐" : !state.me ? "请先登录" : state.me.role === "admin" ? "管理员不可购买" : state.me.status === "disabled" ? "账号已停用" : balance < Number(plan.price_cents || 0) ? "余额不足" : "";
   button.disabled = Boolean(disabledReason);
-  button.textContent = disabledReason || "确认购买并开通";
+  button.textContent = disabledReason || "确认购买此商品";
 }
 
 function renderSuccess() {
-  if ($("#successPlanName")) $("#successPlanName").textContent = state.lastPurchase?.plan?.name ? "已开通：" + state.lastPurchase.plan.name : "套餐已开通";
+  if ($("#successPlanName")) $("#successPlanName").textContent = state.lastPurchase?.plan?.name ? "已处理：" + state.lastPurchase.plan.name : "商品已处理";
   if ($("#successMessage")) {
-    const message = state.lastPurchase ? provisioningNotice("开通结果", state.lastPurchase.provisioning, state.lastPurchase.errors) : "订阅链接与用量信息已经更新。";
+    const message = state.lastPurchase ? provisioningNotice("处理结果", state.lastPurchase.provisioning, state.lastPurchase.errors) : "订阅链接与用量信息已经更新。";
     $("#successMessage").textContent = message;
   }
 }
@@ -1015,6 +1066,37 @@ function renderNodeStatuses() {
   target.innerHTML = state.nodeStatuses.length
     ? state.nodeStatuses.map((node) => '<article class="node-status-card"><header><strong>' + escapeHtml(node.name) + '</strong><span class="status ' + escapeHtml(node.status || "unknown") + '">' + nodeStatusText(node.status) + '</span></header><dl><div><dt>延迟</dt><dd>' + (node.latency_ms == null ? "-" : escapeHtml(node.latency_ms) + "ms") + '</dd></div><div><dt>倍率</dt><dd>' + escapeHtml(node.rate ?? "1") + 'x</dd></div><div><dt>标签/地区</dt><dd>' + escapeHtml(formatTags(node.tags)) + '</dd></div><div><dt>最近检测</dt><dd>' + toDateTime(node.last_checked_at) + '</dd></div></dl></article>').join("")
     : '<div class="empty-state">当前暂无可展示节点。</div>';
+}
+
+function tutorialContentHtml(content) {
+  return escapeHtml(content || "").replaceAll("\n", "<br>");
+}
+
+function groupedTutorials(tutorials) {
+  return (tutorials || []).reduce((groups, item) => {
+    const platform = item.platform || "通用";
+    if (!groups[platform]) groups[platform] = [];
+    groups[platform].push(item);
+    return groups;
+  }, {});
+}
+
+function renderTutorials() {
+  const target = $("#publicTutorialList");
+  if (!target) return;
+  const groups = groupedTutorials(state.tutorials);
+  const platforms = Object.keys(groups);
+  target.innerHTML = platforms.length
+    ? platforms.map((platform) => '<section class="tutorial-platform-group"><h2>' + escapeHtml(platform) + '</h2>' + groups[platform].map((item) => '<article class="tutorial-card"><div><span class="product-type-badge">' + escapeHtml(item.platform || "通用") + '</span><h3>' + escapeHtml(item.title) + '</h3><p>' + tutorialContentHtml(item.content) + '</p></div>' + (item.image_url ? '<img class="tutorial-image" src="' + escapeHtml(item.image_url) + '" alt="' + escapeHtml(item.title) + '">' : '') + '</article>').join("") + '</section>').join("")
+    : '<div class="empty-state">管理员还没有发布教程。你可以先复制订阅链接，按客户端的“导入订阅/URL”入口添加。</div>';
+}
+
+function renderAdminTutorials() {
+  const target = $("#tutorialList");
+  if (!target) return;
+  target.innerHTML = state.adminTutorials.length
+    ? state.adminTutorials.map((item) => '<article class="row-card tutorial-admin-card"><header><strong>' + escapeHtml(item.title) + '</strong><span class="row-actions"><button type="button" class="ghost" data-edit-tutorial="' + item.id + '">编辑</button><button type="button" class="danger" data-delete-tutorial="' + item.id + '">删除</button></span></header><span class="meta">' + escapeHtml(item.platform || "通用") + ' / 排序 ' + escapeHtml(item.sort_order ?? 0) + ' / ' + (item.enabled ? "前台展示" : "草稿隐藏") + '</span><p>' + tutorialContentHtml(String(item.content || "").slice(0, 180)) + '</p>' + (item.image_url ? '<img class="tutorial-image small" src="' + escapeHtml(item.image_url) + '" alt="' + escapeHtml(item.title) + '">' : '') + '</article>').join("")
+    : '<div class="empty-state">还没有教程，先添加一个 Windows 或 Android 教程。</div>';
 }
 
 function renderCheckin() {
@@ -1230,6 +1312,11 @@ async function handleDocumentClick(event) {
     showNotice("订阅链接已复制");
     return;
   }
+  if (target.closest("[data-copy-recommended-sub]")) {
+    await copyTextFromInput($("#subscriptionUrl"));
+    showNotice("推荐订阅链接已复制");
+    return;
+  }
   if (target.closest("[data-copy-profile-sub]")) {
     await copyTextFromInput($("#profileSubscriptionUrl"));
     showNotice("订阅链接已复制");
@@ -1296,6 +1383,13 @@ async function handleDocumentClick(event) {
     await refreshAdmin();
     showNotice("节点已删除");
   }
+  if (action.dataset.deleteTutorial) {
+    if (!window.confirm("确定删除这个教程吗？")) return;
+    await api("/api/admin/tutorials/delete", { method: "POST", body: JSON.stringify({ id: action.dataset.deleteTutorial }), loadingLabel: "正在删除教程" });
+    await refreshAdmin();
+    await refreshPublic();
+    showNotice("教程已删除");
+  }
   if (action.dataset.testPanel) {
     const result = await api("/api/admin/panels/test", { method: "POST", body: JSON.stringify({ panel_id: action.dataset.testPanel }), loadingLabel: "正在测试面板" });
     showNotice(`面板连接正常：${result.inbound_count || 0} 个入站`);
@@ -1324,6 +1418,15 @@ async function handleDocumentClick(event) {
     fillForm($("#nodeForm"), state.nodes.find((item) => String(item.id) === action.dataset.editNode));
     setView("nodes");
   }
+  if (action.dataset.editTutorial) {
+    const tutorial = state.adminTutorials.find((item) => String(item.id) === action.dataset.editTutorial);
+    fillForm($("#tutorialForm"), tutorial);
+    setView("settings");
+    $("#tutorialForm")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  if (action.dataset.resetTutorialForm !== undefined) {
+    resetTutorialForm();
+  }
 }
 
 async function handleDocumentChange(event) {
@@ -1344,6 +1447,15 @@ async function handleDocumentChange(event) {
     localStorage.setItem(profileStorageKey("avatar"), state.profileAvatar);
     renderProfile();
     showNotice("头像已更新");
+    target.value = "";
+  }
+  if (target.id === "tutorialImageInput") {
+    const file = target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) throw new Error("请选择图片文件");
+    if (file.size > 2 * 1024 * 1024) throw new Error("教程图片不能超过 2MB");
+    $("#tutorialForm").elements.image_url.value = String(await readFileAsDataUrl(file));
+    showNotice("教程图片已读取");
     target.value = "";
   }
 }
@@ -1375,6 +1487,7 @@ function bindEvents() {
     state.checkin = null;
     state.tickets = [];
     state.adminTickets = [];
+    state.adminTutorials = [];
     state.checkinSettings = {};
     state.revealedCards = {};
     state.lastPurchase = null;
@@ -1409,11 +1522,6 @@ function bindEvents() {
     await refreshAdmin();
     showNotice(`同步完成：更新 ${result.synced || 0} 条，停用 ${result.disabled || 0} 个客户端${result.errors?.length ? "，有错误请检查面板配置" : ""}`);
   });
-  $("#copySubBtn").addEventListener("click", async () => {
-    await copyTextFromInput($("#subscriptionUrl"));
-    showNotice("订阅链接已复制");
-  });
-
   $("#profilePasswordForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
     const data = formData(form);
     if (data.new_password !== data.confirm_password) throw new Error("两次输入的新密码不一致");
@@ -1510,6 +1618,14 @@ function bindEvents() {
     showNotice("签到配置已保存");
   }));
 
+  $("#tutorialForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
+    await api("/api/admin/tutorials", { method: "POST", body: JSON.stringify(formData(form)), loadingLabel: "正在保存教程" });
+    resetTutorialForm();
+    await refreshAdmin();
+    await refreshPublic();
+    showNotice("教程已保存");
+  }));
+
   $("#usageForm").addEventListener("submit", (event) => withSubmitState(event, async (form) => {
     await api("/api/admin/usage", { method: "POST", body: JSON.stringify(formData(form)) });
     await refreshAdmin();
@@ -1522,6 +1638,7 @@ async function boot() {
   resetPlanForm();
   resetPanelForm();
   resetNodeForm();
+  resetTutorialForm();
   await refreshPublic();
   await refreshMe();
   setView("storefront");
