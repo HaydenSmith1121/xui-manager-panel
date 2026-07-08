@@ -1409,7 +1409,7 @@ class Database:
                 raise ValueError("教程不存在")
 
     def checkin_settings(self) -> dict[str, Any]:
-        enabled = str(self.get_setting("checkin_enabled", "false")).lower() in {"1", "true", "yes", "on"}
+        enabled = str(self.get_setting("checkin_enabled", "true")).lower() in {"1", "true", "yes", "on"}
         mode = str(self.get_setting("checkin_mode", "fixed") or "fixed").strip().lower()
         active_plan_only = str(self.get_setting("checkin_active_plan_only", "true")).lower() in {"1", "true", "yes", "on"}
         if mode not in {"fixed", "random"}:
@@ -1479,7 +1479,7 @@ class Database:
         return {
             "settings": settings,
             "enabled": bool(settings["enabled"]),
-            "eligible": self._user_can_checkin(user, now),
+            "eligible": self._user_can_checkin(user, now, bool(settings["active_plan_only"])),
             "checked_in_today": bool(checked),
             "today": today,
             "last_reward_bytes": int(checked["reward_bytes"]) if checked else 0,
@@ -1505,7 +1505,7 @@ class Database:
             if not user_row:
                 raise ValueError("用户不存在")
             user = self._decode_user(user_row)
-            if not self._user_can_checkin(user, now):
+            if not self._user_can_checkin(user, now, bool(settings["active_plan_only"])):
                 raise ValueError("仅限已开通套餐的用户签到")
             existing = conn.execute(
                 "select id from checkin_records where user_id=? and checkin_date=?",
@@ -1531,14 +1531,13 @@ class Database:
             }
         return {"record": record, "user": self.get_user(user_id), "checkin": self.checkin_status(user_id)}
 
-    def _user_can_checkin(self, user: dict[str, Any], now: int | None = None) -> bool:
+    def _user_can_checkin(self, user: dict[str, Any], now: int | None = None, active_plan_only: bool = True) -> bool:
         now = int(time.time()) if now is None else int(now)
-        return (
-            user.get("role") == "user"
-            and user.get("status") == "active"
-            and user.get("plan_id") is not None
-            and int(user.get("expire_at") or 0) > now
-        )
+        if user.get("role") != "user" or user.get("status") != "active":
+            return False
+        if not active_plan_only:
+            return True
+        return user.get("plan_id") is not None and int(user.get("expire_at") or 0) > now
 
     def create_ticket(self, user_id: int, subject: str, message: str) -> dict[str, Any]:
         subject = str(subject or "").strip()
@@ -1626,6 +1625,30 @@ class Database:
             conn.execute(
                 "update tickets set status=?, updated_at=? where id=?",
                 (next_status, now, int(ticket_id)),
+            )
+        return self.get_ticket(ticket_id)
+
+    def reply_user_ticket(self, ticket_id: int, user_id: int, message: str) -> dict[str, Any]:
+        message = str(message or "").strip()
+        if not message:
+            raise ValueError("回复内容不能为空")
+        now = int(time.time())
+        with self.session() as conn:
+            ticket = conn.execute(
+                "select id, user_id from tickets where id=?",
+                (int(ticket_id),),
+            ).fetchone()
+            if not ticket:
+                raise ValueError("工单不存在")
+            if int(ticket["user_id"]) != int(user_id):
+                raise PermissionError("无权回复该工单")
+            conn.execute(
+                "insert into ticket_replies(ticket_id, user_id, role, message, created_at) values (?, ?, ?, ?, ?)",
+                (int(ticket_id), int(user_id), "user", message[:2000], now),
+            )
+            conn.execute(
+                "update tickets set status=?, updated_at=? where id=?",
+                ("open", now, int(ticket_id)),
             )
         return self.get_ticket(ticket_id)
 

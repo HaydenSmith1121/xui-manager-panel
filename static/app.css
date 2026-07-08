@@ -6020,11 +6020,11 @@ body.is-guest .storefront {
 }
 
 body.is-guest .guest-topbar {
-  position: relative !important;
-  z-index: 20 !important;
+  position: sticky !important;
+  z-index: 1200 !important;
   left: auto !important;
   right: auto !important;
-  top: auto !important;
+  top: 0 !important;
   transform: none !important;
   display: grid !important;
   grid-template-columns: 180px minmax(280px, auto) 132px !important;
@@ -6037,6 +6037,45 @@ body.is-guest .guest-topbar {
   margin: 0 auto !important;
   padding: 0 !important;
   overflow: visible !important;
+}
+
+body.is-guest #storefrontView,
+body.is-guest .storefront {
+  overflow: visible !important;
+}
+
+.recharge-admin-panel .inline-form,
+.user-ticket-reply-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+}
+
+.recharge-admin-panel .inline-form button,
+.user-ticket-reply-form button {
+  grid-column: 1 / -1;
+  width: 100%;
+  white-space: nowrap;
+}
+
+.recharge-admin-panel .inline-form label,
+.user-ticket-reply-form label {
+  min-width: 0;
+}
+
+.user-ticket-reply-form {
+  margin-top: 14px;
+}
+
+.recharge-card-list-panel {
+  min-width: 0;
+}
+
+.recharge-card header {
+  align-items: flex-start;
+}
+
+.recharge-card .card-code {
+  overflow-wrap: anywhere;
 }
 
 body.is-guest .guest-brand {
@@ -13219,4 +13258,18 @@ body.is-authed #balanceView .transaction-panel .form-intro {
 /* Hide final CTA subtitle per latest feedback */
 #storefrontView .guest-final-cta .guest-final-copy p {
   display: none !important;
+}
+
+/* Final override: keep the public header pinned above later responsive patches. */
+body.is-guest #storefrontView > .guest-topbar,
+body.is-guest .storefront > .guest-topbar,
+body.is-guest .guest-topbar {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 1200 !important;
+}
+
+body.is-guest #storefrontView,
+body.is-guest .storefront {
+  overflow: visible !important;
 }

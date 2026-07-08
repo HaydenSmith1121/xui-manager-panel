@@ -547,6 +547,19 @@ async function handleDynamicSubmit(event) {
       showNotice("工单已回复");
     });
   }
+  if (form.matches("[data-user-ticket-reply-form]")) {
+    event.preventDefault();
+    await withFormState(form, async () => {
+      await api("/api/tickets/reply", {
+        method: "POST",
+        body: JSON.stringify({ ...formData(form), ticket_id: form.dataset.userTicketReplyForm }),
+        loadingLabel: "正在提交回复",
+      });
+      form.reset();
+      await refreshTickets();
+      showNotice("工单回复已提交");
+    });
+  }
 }
 
 function setView(view) {
@@ -1296,7 +1309,7 @@ function renderTickets() {
     return;
   }
   target.innerHTML = state.tickets.length
-    ? state.tickets.map((ticket) => '<article class="ticket-card"><header><strong>#' + ticket.id + ' ' + escapeHtml(ticket.subject) + '</strong><span class="status ' + escapeHtml(ticket.status) + '">' + ticketStatusText(ticket.status) + '</span></header><p>' + escapeHtml(ticket.message) + '</p><small>创建 ' + toDateTime(ticket.created_at) + ' / 更新 ' + toDateTime(ticket.updated_at) + '</small><div class="ticket-replies">' + ticketRepliesHtml(ticket) + '</div></article>').join("")
+    ? state.tickets.map((ticket) => '<article class="ticket-card"><header><strong>#' + ticket.id + ' ' + escapeHtml(ticket.subject) + '</strong><span class="status ' + escapeHtml(ticket.status) + '">' + ticketStatusText(ticket.status) + '</span></header><p>' + escapeHtml(ticket.message) + '</p><small>创建 ' + toDateTime(ticket.created_at) + ' / 更新 ' + toDateTime(ticket.updated_at) + '</small><div class="ticket-replies">' + ticketRepliesHtml(ticket) + '</div><form class="inline-form user-ticket-reply-form" data-user-ticket-reply-form="' + ticket.id + '"><label>继续反馈<textarea name="message" rows="3" maxlength="2000" required placeholder="补充你的问题或回复客服"></textarea></label><button type="submit">继续回复</button></form></article>').join("")
     : '<span class="meta">暂无工单</span>';
 }
 

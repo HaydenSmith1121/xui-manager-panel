@@ -281,6 +281,21 @@ class UiFunctionalityPlanTests(unittest.TestCase):
         self.assertEqual(blocked.status, 400)
         self.assertIn("仅限已开通套餐", blocked.body)
 
+    def test_checkin_is_enabled_by_default_for_active_users(self):
+        plan_id = self.app.db.create_plan("Default Daily", 10, 30, [], False, price_cents=0)
+        user = self.app.db.register_user("default-checkin@example.com", "secret123")
+        self.app.db.purchase_plan(user["id"], plan_id)
+        headers = self.login_user_headers(user["email"])
+
+        status_before = self.app.handle_json("GET", "/api/checkin", headers, "")
+        checked = self.app.handle_json("POST", "/api/checkin", headers, "{}")
+
+        self.assertTrue(json.loads(status_before.body)["checkin"]["enabled"])
+        self.assertEqual(checked.status, 200)
+        payload = json.loads(checked.body)
+        self.assertEqual(payload["reward_bytes"], bytes_from_gb(1))
+        self.assertTrue(payload["checkin"]["checked_in_today"])
+
     def test_checkin_random_range_and_status_endpoint_are_configurable_by_admin(self):
         plan_id = self.app.db.create_plan("Random", 10, 30, [], False, price_cents=0)
         user = self.app.db.register_user("random@example.com", "secret123")
@@ -318,14 +333,46 @@ class UiFunctionalityPlanTests(unittest.TestCase):
             "/api/admin/tickets/reply",
             {"ticket_id": ticket["id"], "message": "已安排检查", "status": "closed"},
         )
+        user_reply = self.app.handle_json(
+            "POST",
+            "/api/tickets/reply",
+            headers,
+            json.dumps({"ticket_id": ticket["id"], "message": "我这边还有问题"}),
+        )
         user_list = self.app.handle_json("GET", "/api/tickets", headers, "")
         admin_list = self.app.handle_json("GET", "/api/admin/tickets", self.admin_headers, "")
 
         self.assertEqual(created.status, 200)
         self.assertEqual(admin_reply.status, 200)
-        self.assertEqual(json.loads(user_list.body)["tickets"][0]["status"], "closed")
-        self.assertEqual(json.loads(user_list.body)["tickets"][0]["reply_count"], 1)
+        self.assertEqual(user_reply.status, 200)
+        ticket_after_reply = json.loads(user_list.body)["tickets"][0]
+        self.assertEqual(ticket_after_reply["status"], "open")
+        self.assertEqual(ticket_after_reply["reply_count"], 2)
+        self.assertEqual(ticket_after_reply["replies"][-1]["role"], "user")
+        self.assertEqual(ticket_after_reply["replies"][-1]["message"], "我这边还有问题")
         self.assertEqual(json.loads(admin_list.body)["tickets"][0]["user_email"], "ticket@example.com")
+
+    def test_user_cannot_reply_to_another_users_ticket(self):
+        owner = self.app.db.register_user("ticket-owner@example.com", "secret123")
+        other = self.app.db.register_user("ticket-other@example.com", "secret123")
+        owner_headers = self.login_user_headers(owner["email"])
+        other_headers = self.login_user_headers(other["email"])
+        created = self.app.handle_json(
+            "POST",
+            "/api/tickets",
+            owner_headers,
+            json.dumps({"subject": "账号问题", "message": "请帮忙看下"}),
+        )
+        ticket_id = json.loads(created.body)["ticket"]["id"]
+
+        response = self.app.handle_json(
+            "POST",
+            "/api/tickets/reply",
+            other_headers,
+            json.dumps({"ticket_id": ticket_id, "message": "冒充回复"}),
+        )
+
+        self.assertEqual(response.status, 403)
 
 
 class UiSurfaceContractTests(unittest.TestCase):
@@ -386,6 +433,8 @@ class UiSurfaceContractTests(unittest.TestCase):
         self.assertIn('/api/admin/tutorials', app_js)
         self.assertIn('/api/nodes/status', app_js)
         self.assertIn('/api/tickets', app_js)
+        self.assertIn('/api/tickets/reply', app_js)
+        self.assertIn('data-user-ticket-reply-form', app_js)
         self.assertIn('productTypeLabel', app_js)
         self.assertNotIn('续费 / 更换', app_js)
         self.assertNotIn('autoRenew', app_js)
@@ -396,3 +445,6 @@ class UiSurfaceContractTests(unittest.TestCase):
         self.assertIn('--accent-cyan', app_css)
         self.assertIn('.profile-list', app_css)
         self.assertIn('.tutorial-list', app_css)
+        self.assertIn('.recharge-admin-panel .inline-form', app_css)
+        self.assertIn('body.is-guest .guest-topbar', app_css)
+        self.assertIn('position: sticky !important', app_css)

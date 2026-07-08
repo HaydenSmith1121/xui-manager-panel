@@ -166,6 +166,15 @@ class XuiManagerApp:
                     return guard
                 ticket = self.db.create_ticket(user["id"], payload["subject"], payload["message"])
                 return self.json_response({"ticket": ticket})
+            if method == "POST" and path == "/api/tickets/reply":
+                user = self.user_from_headers(headers)
+                if not user or user.get("role") != "user":
+                    return self.json_response({"error": "请先登录"}, 401)
+                guard = self.require_mutation_headers(headers)
+                if guard:
+                    return guard
+                ticket = self.db.reply_user_ticket(int(payload["ticket_id"]), user["id"], payload["message"])
+                return self.json_response({"ticket": ticket})
             if method == "GET" and path == "/api/balance/transactions":
                 user = self.user_from_headers(headers)
                 if not user or user.get("role") != "user":
@@ -205,6 +214,8 @@ class XuiManagerApp:
             return self.json_response({"error": f"Missing field: {exc.args[0]}"}, 400)
         except ValueError as exc:
             return self.json_response({"error": str(exc)}, 400)
+        except PermissionError as exc:
+            return self.json_response({"error": str(exc)}, 403)
         return self.json_response({"error": "Not found"}, 404)
 
     def handle_admin(self, method: str, path: str, headers: dict[str, str], payload: dict[str, Any]) -> Response:

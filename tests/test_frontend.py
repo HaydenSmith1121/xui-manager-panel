@@ -328,6 +328,7 @@ class FrontendTests(unittest.TestCase):
     def test_admin_recharge_card_generator_is_available(self):
         root = Path(__file__).resolve().parents[1]
         app_js = (root / "static" / "app.js").read_text(encoding="utf-8")
+        app_css = (root / "static" / "app.css").read_text(encoding="utf-8")
         index_html = (root / "static" / "index.html").read_text(encoding="utf-8")
 
         self.assertIn('id="rechargeCardsView"', index_html)
@@ -344,6 +345,8 @@ class FrontendTests(unittest.TestCase):
         self.assertIn("data-reveal-card", app_js)
         self.assertIn("data-copy-card", app_js)
         self.assertIn("generatedCardCodes", app_js)
+        self.assertIn('.recharge-admin-panel .inline-form', app_css)
+        self.assertIn('grid-column: 1 / -1', app_css)
 
 
 if __name__ == "__main__":
