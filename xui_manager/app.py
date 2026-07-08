@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import sys
 import time
 import urllib.parse
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -20,6 +21,31 @@ from .worker import PeriodicSyncWorker
 from .xui_api import XuiClient
 
 
+
+DEFAULT_STORE_PLANS = [
+    {
+        "name": "入门套餐",
+        "quota_gb": 30,
+        "duration_days": 30,
+        "price_cents": 990,
+        "description": "轻量使用，适合偶尔连接。",
+    },
+    {
+        "name": "日常套餐",
+        "quota_gb": 100,
+        "duration_days": 30,
+        "price_cents": 1990,
+        "description": "日常使用，兼顾多设备连接。",
+    },
+    {
+        "name": "畅享套餐",
+        "quota_gb": 300,
+        "duration_days": 30,
+        "price_cents": 3990,
+        "description": "高频使用，流量空间更充足。",
+    },
+]
+
 class XuiManagerApp:
     def __init__(
         self,
@@ -36,6 +62,36 @@ class XuiManagerApp:
         self.provisioning = ProvisioningService(self.db, client_factory, now=clock)
         self.usage_sync = UsageSyncService(self.db, self.provisioning, client_factory, now=clock)
 
+
+    def public_store_plans(self) -> list[dict[str, Any]]:
+        self.ensure_default_store_plans()
+        return self.db.list_plans(enabled_only=True)
+
+    def ensure_default_store_plans(self) -> None:
+        existing = self.db.list_plans()
+        existing_names = {str(plan.get("name") or "").strip() for plan in existing}
+        existing_quotas = {
+            round(int(plan.get("quota_bytes") or 0) / 1024 / 1024 / 1024)
+            for plan in existing
+            if (plan.get("product_type") or "subscription") == "subscription"
+        }
+        for spec in DEFAULT_STORE_PLANS:
+            if spec["name"] in existing_names or spec["quota_gb"] in existing_quotas:
+                continue
+            self.db.create_plan(
+                spec["name"],
+                spec["quota_gb"],
+                spec["duration_days"],
+                [],
+                False,
+                True,
+                spec["price_cents"],
+                "subscription",
+                "套餐",
+                spec["description"],
+                "",
+            )
+
     def handle_json(self, method: str, path: str, headers: dict[str, str], body: str) -> Response:
         try:
             payload = json.loads(body or "{}")
@@ -43,7 +99,7 @@ class XuiManagerApp:
             return self.json_response({"error": "Invalid JSON"}, 400)
         try:
             if method == "GET" and path == "/api/plans":
-                return self.json_response({"plans": self.db.list_plans(enabled_only=True)})
+                return self.json_response({"plans": self.public_store_plans()})
             if method == "GET" and path == "/api/tutorials":
                 return self.json_response({"tutorials": self.db.list_tutorials(enabled_only=True)})
             if method == "GET" and path == "/api/nodes/status":
@@ -595,6 +651,12 @@ def make_handler(app: XuiManagerApp) -> type[BaseHTTPRequestHandler]:
             self.end_headers()
             if include_body:
                 self.wfile.write(data)
+
+        def log_message(self, format: str, *args: Any) -> None:
+            try:
+                sys.stderr.write("%s - - [%s] %s\n" % (self.address_string(), self.log_date_time_string(), format % args))
+            except Exception:
+                return
 
         def header_map(self) -> dict[str, str]:
             return {key: value for key, value in self.headers.items()}

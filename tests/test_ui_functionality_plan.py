@@ -45,6 +45,40 @@ class UiFunctionalityPlanTests(unittest.TestCase):
             "Content-Type": "application/json",
         }
 
+    def test_public_store_seeds_three_purchase_plans_when_empty(self):
+        response = self.app.handle_json("GET", "/api/plans", {"Host": "manager.example.com"}, "")
+        payload = json.loads(response.body)
+        plans = payload["plans"]
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual([plan["name"] for plan in plans[:3]], ["入门套餐", "日常套餐", "畅享套餐"])
+        self.assertEqual([plan["price_cents"] for plan in plans[:3]], [990, 1990, 3990])
+        self.assertEqual([plan["duration_days"] for plan in plans[:3]], [30, 30, 30])
+        self.assertEqual([plan["quota_bytes"] for plan in plans[:3]], [bytes_from_gb(30), bytes_from_gb(100), bytes_from_gb(300)])
+        self.assertTrue(all(isinstance(plan["id"], int) for plan in plans[:3]))
+
+        second = self.app.handle_json("GET", "/api/plans", {"Host": "manager.example.com"}, "")
+        self.assertEqual(len(json.loads(second.body)["plans"]), len(plans))
+
+    def test_logged_in_user_can_buy_seeded_store_plan(self):
+        plans = json.loads(self.app.handle_json("GET", "/api/plans", {"Host": "manager.example.com"}, "").body)["plans"]
+        user = self.app.db.register_user("buyer@example.com", "secret123")
+        self.app.db.adjust_user_balance(user["id"], 5000, "充值测试", self.admin["id"])
+        headers = self.login_user_headers("buyer@example.com")
+
+        purchase = self.app.handle_json(
+            "POST",
+            "/api/purchases",
+            headers,
+            json.dumps({"plan_id": plans[0]["id"]}),
+        )
+        payload = json.loads(purchase.body)
+
+        self.assertEqual(purchase.status, 200)
+        self.assertEqual(payload["user"]["plan_id"], plans[0]["id"])
+        self.assertEqual(payload["user"]["status"], "active")
+        self.assertEqual(payload["user"]["balance_cents"], 4010)
+
     def test_admin_can_reveal_encrypted_recharge_card_but_legacy_card_stays_masked(self):
         generated = self.post_admin("/api/admin/recharge-cards", {"amount_yuan": 20, "count": 1})
         card = json.loads(generated.body)["cards"][0]

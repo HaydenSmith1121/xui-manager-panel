@@ -4,38 +4,39 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#f6faff">
-    <title>黑心云 · 订阅管理</title>
+    <title>黑心云 · 套餐与订阅</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="stylesheet" href="/app.css">
   </head>
-  <body>
+  <body class="is-guest">
     <div class="app-shell mobile-shell">
       <aside class="sidebar" aria-label="主导航">
-        <button class="brand brand-button" type="button" data-view="home" aria-label="返回首页">
+        <div class="brand brand-static" aria-label="黑心云">
           <span class="brand-mark" aria-hidden="true">
             <svg viewBox="0 0 64 64"><path d="M18 43c-7 0-12-4-12-10s5-10 12-10c4-8 15-9 20-2 9-1 16 5 16 12 0 6-5 10-12 10H18Z"/><path class="brand-pulse" d="M15 33h12l5-8 6 15 6-7h13"/></svg>
           </span>
-          <span><strong>黑心云</strong><small>Cloud access</small></span>
-        </button>
+          <span><strong>黑心云</strong><small>套餐与订阅</small></span>
+        </div>
 
         <nav class="nav">
-          <button class="nav-item active" type="button" data-view="storefront"><span>商城</span><small>实时商品</small></button>
-          <button class="nav-item" type="button" data-view="nodeStatus"><span>节点状态</span><small>延迟与倍率</small></button>
-          <button class="nav-item" type="button" data-view="guide"><span>使用教程</span><small>客户端导入</small></button>
-          <button class="nav-item user-only hidden" type="button" data-view="account"><span>仪表盘</span><small>用量与签到</small></button>
-          <button class="nav-item user-only hidden" type="button" data-view="tickets"><span>工单帮助</span><small>问题跟进</small></button>
-          <button class="nav-item admin-only hidden" type="button" data-view="admin"><span>用户</span><small>审核与状态</small></button>
-          <button class="nav-item admin-only hidden" type="button" data-view="tickets"><span>工单</span><small>回复与关闭</small></button>
-          <button class="nav-item admin-only hidden" type="button" data-view="rechargeCards"><span>充值卡</span><small>生成与复制</small></button>
-          <button class="nav-item admin-only hidden" type="button" data-view="nodes"><span>节点</span><small>X-UI 接入</small></button>
-          <button class="nav-item admin-only hidden" type="button" data-view="settings"><span>配置</span><small>套餐与面板</small></button>
+          <button class="nav-item active" type="button" data-view="storefront"><span>套餐中心</span></button>
+          <button class="nav-item user-only hidden" type="button" data-view="account"><span class="nav-label-main">我的订阅</span><span class="nav-legacy-label" aria-hidden="true"><span>仪表盘</span></span></button>
+          <button class="nav-item user-only hidden" type="button" data-view="balance"><span>我的余额</span></button>
+          <button class="nav-item" type="button" data-view="nodeStatus"><span>可用节点</span></button>
+          <button class="nav-item" type="button" data-view="guide"><span>导入教程</span></button>
+          <button class="nav-item user-only hidden" type="button" data-view="tickets"><span>工单帮助</span></button>
+          <button class="nav-item admin-only hidden" type="button" data-view="admin"><span>用户</span></button>
+          <button class="nav-item admin-only hidden" type="button" data-view="rechargeCards"><span>充值卡</span></button>
+          <button class="nav-item admin-only hidden" type="button" data-view="nodes"><span>节点配置</span></button>
+          <button class="nav-item admin-only hidden" type="button" data-view="settings"><span>配置</span></button>
+          <button class="nav-item admin-only hidden" type="button" data-view="tickets"><span>工单帮助</span></button>
         </nav>
       </aside>
 
       <main class="main-shell">
         <button id="profileEntryBtn" type="button" class="profile-entry" data-view="profile" aria-label="个人中心">
           <span id="profileEntryAvatar" class="avatar-circle" aria-hidden="true">登</span>
-          <span id="profileEntryLabel" class="sr-only">个人中心</span>
+          <span id="profileEntryLabel" class="sr-only">登录 / 个人中心</span>
         </button>
 
         <header class="mobile-header">
@@ -43,7 +44,7 @@
             <span class="brand-mark" aria-hidden="true">
               <svg viewBox="0 0 64 64"><path d="M18 43c-7 0-12-4-12-10s5-10 12-10c4-8 15-9 20-2 9-1 16 5 16 12 0 6-5 10-12 10H18Z"/><path class="brand-pulse" d="M15 33h12l5-8 6 15 6-7h13"/></svg>
             </span>
-            <span><strong>黑心云</strong><small>Cloud access</small></span>
+            <span><strong>黑心云</strong><small>套餐与订阅</small></span>
           </button>
           <button id="mobileAccountBtn" type="button" class="avatar-button" aria-label="账号">
             <span id="mobileAvatar" class="avatar-circle small" aria-hidden="true">登</span>
@@ -53,21 +54,16 @@
 
         <div id="notice" class="notice hidden" role="status" aria-live="polite"></div>
 
-        <section id="homeView" class="view home">
-          <div class="hero">
+        <section id="homeView" class="view home hidden">
+          <div class="hero home-hero">
             <div class="hero-copy">
-              <p class="eyebrow">KOREA NODE ACCESS</p>
-              <h1>余额购买，<br><span>连接即刻生效。</span></h1>
-              <p class="hero-lede">实时套餐公开透明。登录后使用余额付款，无需等待人工审核。</p>
+              <p class="eyebrow">黑心云</p>
+              <h1>选好套餐，马上开通。</h1>
+              <p class="hero-lede">黑心云会自动生成订阅链接，复制后按教程导入客户端。</p>
               <div class="hero-actions">
-                <button type="button" data-scroll-plans>进入商城</button>
-                <button type="button" class="ghost" data-open-auth="login">登录账号</button>
+                <button type="button" data-view="storefront">选择套餐</button>
+                <button type="button" class="ghost" data-view="guide" aria-label="查看客户端教程">客户端教程</button>
               </div>
-              <dl class="hero-facts">
-                <div><dt>实时</dt><dd>读取后台套餐</dd></div>
-                <div><dt>专属</dt><dd>独立订阅链接</dd></div>
-                <div><dt>清晰</dt><dd>用量随时可查</dd></div>
-              </dl>
             </div>
             <div class="hero-visual" aria-hidden="true">
               <div class="cloud-orbit orbit-one"></div>
@@ -78,26 +74,154 @@
                 <path d="M86 166c-27 0-45-17-45-40s18-40 45-40c16-30 58-33 77-5 37-3 62 19 62 49 0 23-19 37-44 37H86Z" fill="#fff" opacity=".96"/>
                 <path d="M79 129h43l18-27 22 54 23-27h48" fill="none" stroke="#49d8ff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
-              <span class="visual-note note-top">Seoul · KR</span>
-              <span class="visual-note note-bottom">Live subscription</span>
+              <span class="visual-note note-top">专属订阅</span>
+              <span class="visual-note note-bottom">图文教程</span>
             </div>
           </div>
-
         </section>
-
-        <section id="storefrontView" class="view storefront hidden">
-          <div class="catalog-section" id="plansSection">
-            <div class="section-heading">
-              <div><p class="eyebrow">PRODUCT CATALOG</p><h2>选择适合你的商品</h2></div>
+        <section id="storefrontView" class="view storefront">
+          <header class="guest-topbar" aria-label="黑心云首页导航">
+            <button class="guest-brand brand-button" type="button" data-scroll-guest="hero" aria-label="黑心云首页">
+              <span class="brand-mark" aria-hidden="true">
+                <svg viewBox="0 0 64 64"><path d="M18 43c-7 0-12-4-12-10s5-10 12-10c4-8 15-9 20-2 9-1 16 5 16 12 0 6-5 10-12 10H18Z"/><path class="brand-pulse" d="M15 33h12l5-8 6 15 6-7h13"/></svg>
+              </span>
+              <strong>黑心云</strong>
+            </button>
+            <nav class="guest-nav" aria-label="页面导航">
+              <button type="button" data-scroll-guest="plans">套餐价格</button>
+              <button type="button" data-scroll-guest="clients">支持设备</button>
+              <button type="button" data-scroll-guest="flow">开通步骤</button>
+            </nav>
+            <div class="guest-auth-actions">
+              <button type="button" data-open-auth="login">登录 / 注册</button>
             </div>
-            <div id="planCatalog" class="plan-catalog" aria-live="polite"></div>
-          </div>
-        </section>
+          </header>
 
+          <section class="guest-hero guest-module" id="guestHero" aria-labelledby="guestHeroTitle">
+            <div class="guest-module-inner hero-grid">
+              <div class="guest-hero-copy">
+                <h1 id="guestHeroTitle">稳定订阅 多端畅连</h1>
+                <p>多地区节点，一键导入，常用设备稳定连接。</p>
+                <div class="hero-actions">
+                  <button type="button" data-scroll-plans>查看套餐</button>
+                </div>
+              </div>
+              <div class="guest-hero-visual" aria-label="黑心云多平台连接示意">
+                <div class="hero-visual-scene">
+                  <span class="hero-glow hero-glow-one"></span>
+                  <span class="hero-glow hero-glow-two"></span>
+                  <span class="hero-orbit hero-orbit-one"></span>
+                  <span class="hero-orbit hero-orbit-two"></span>
+                  <span class="hero-orbit hero-orbit-three"></span>
+                  <div class="hero-route route-one"></div>
+                  <div class="hero-route route-two"></div>
+                  <div class="hero-route route-three"></div>
+                  <div class="hero-core-icon">
+                    <svg viewBox="0 0 96 96"><path d="M27 62c-10 0-17-6-17-15 0-8 6-14 15-15 5-13 24-16 33-5 14-1 25 8 25 20 0 9-7 15-18 15H27Z"/><path d="M31 50h15l7-12 9 23 8-11h14"/></svg>
+                  </div>
+                  <div class="hero-benefit-card benefit-platform"><strong>全平台覆盖</strong></div>
+                  <div class="hero-benefit-card benefit-speed"><strong>一键导入</strong></div>
+                  <div class="hero-benefit-card benefit-nodes"><strong>多地区节点</strong></div>
+                  <div class="hero-benefit-card benefit-price"><strong>价格优惠</strong></div>
+                  <div class="hero-benefit-card benefit-traffic"><strong>流量透明</strong></div>
+                  <div class="hero-benefit-card benefit-status"><strong>售后支持</strong></div>
+                  <div class="hero-client-orbit client-clash"><img src="/assets/clients/clash-verge.svg" alt=""><b>Clash Verge</b></div>
+                  <div class="hero-client-orbit client-shadowrocket"><img src="/assets/clients/shadowrocket.svg" alt=""><b>Shadowrocket</b></div>
+                  <div class="hero-client-orbit client-v2rayng"><img src="/assets/clients/v2rayng.svg" alt=""><b>v2rayNG</b></div>
+                  <div class="hero-client-orbit client-singbox"><img src="/assets/clients/sing-box.svg" alt=""><b>sing-box</b></div>
+                  <div class="hero-client-orbit client-hiddify"><img src="/assets/clients/hiddify.svg" alt=""><b>Hiddify</b></div>
+                  <div class="hero-signal-lines"><span></span><span></span><span></span></div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="guest-section guest-module guest-plans" id="plansSection" aria-labelledby="plansTitle">
+            <div class="guest-module-inner">
+              <div class="guest-section-heading split-heading">
+                <h2 id="plansTitle">先选一个合适的套餐</h2>
+                <p id="plansSubtitle">轻度使用、日常上网或高频连接，按流量需求选择即可。</p>
+              </div>
+              <div id="planCatalog" class="plan-catalog compact-plans guest-plan-catalog" aria-live="polite"></div>
+            </div>
+          </section>
+
+          <section class="guest-section guest-module guest-clients" id="guestClients" aria-labelledby="guestClientsTitle">
+            <div class="guest-module-inner">
+              <div class="guest-section-heading client-heading">
+                <h2 id="guestClientsTitle">主流设备全面兼容</h2>
+                <p>覆盖 Windows、macOS、iOS、Android，常用客户端均可导入订阅。</p>
+              </div>
+              <div class="client-showcase" aria-label="设备与客户端推荐">
+                <article class="platform-client-card">
+                  <div class="platform-card-visual"><div class="platform-card-icon"><svg viewBox="0 0 48 48"><rect x="6" y="11" width="36" height="24" rx="4"/><path d="M18 40h12M24 35v5"/></svg></div><img src="/assets/clients/clash-verge.svg" alt="Clash Verge"></div>
+                  <div class="platform-card-copy"><span>Windows</span><strong>Clash Verge</strong><p>桌面端推荐，适合电脑日常使用。</p></div>
+                </article>
+                <article class="platform-client-card">
+                  <div class="platform-card-visual"><div class="platform-card-icon"><svg viewBox="0 0 48 48"><rect x="9" y="10" width="30" height="23" rx="4"/><path d="M18 39h12M24 33v6"/></svg></div><img src="/assets/clients/clash-verge.svg" alt="Clash Verge"></div>
+                  <div class="platform-card-copy"><span>macOS</span><strong>Clash Verge</strong><p>订阅导入后，节点自动同步。</p></div>
+                </article>
+                <article class="platform-client-card">
+                  <div class="platform-card-visual"><div class="platform-card-icon"><svg viewBox="0 0 48 48"><rect x="15" y="6" width="18" height="36" rx="6"/><path d="M22 35h4"/></svg></div><img src="/assets/clients/shadowrocket.svg" alt="Shadowrocket"></div>
+                  <div class="platform-card-copy"><span>iOS</span><strong>Shadowrocket</strong><p>适合 iPhone / iPad 快速配置。</p></div>
+                </article>
+                <article class="platform-client-card">
+                  <div class="platform-card-visual"><div class="platform-card-icon"><svg viewBox="0 0 48 48"><path d="M14 19h20v15a6 6 0 0 1-6 6h-8a6 6 0 0 1-6-6V19Z"/><path d="M17 14l-4-5M31 14l4-5M18 19v-3a6 6 0 0 1 12 0v3M10 22v10M38 22v10"/></svg></div><img src="/assets/clients/v2rayng.svg" alt="v2rayNG"></div>
+                  <div class="platform-card-copy"><span>Android</span><strong>v2rayNG</strong><p>安卓手机常用，导入订阅即可连接。</p></div>
+                </article>
+              </div>
+              <div class="client-tool-cloud" aria-label="支持的客户端">
+                <span><img src="/assets/clients/clash-verge.svg" alt=""><strong>Clash Verge</strong></span>
+                <span><img src="/assets/clients/shadowrocket.svg" alt=""><strong>Shadowrocket</strong></span>
+                <span><img src="/assets/clients/v2rayng.svg" alt=""><strong>v2rayNG</strong></span>
+                <span><img src="/assets/clients/sing-box.svg" alt=""><strong>sing-box</strong></span>
+                <span><img src="/assets/clients/hiddify.svg" alt=""><strong>Hiddify</strong></span>
+              </div>
+            </div>
+          </section>
+
+          <section class="guest-section guest-module guest-flow" id="guestFlow" aria-labelledby="guestFlowTitle">
+            <div class="guest-module-inner">
+              <div class="guest-section-heading split-heading">
+                <h2 id="guestFlowTitle">开通使用流程</h2>
+                <p>购买套餐后，按步骤完成订阅导入即可使用。</p>
+              </div>
+              <div class="flow-timeline flow-path" aria-label="开通流程">
+                <article class="flow-timeline-item">
+                  <div class="flow-step-label" aria-hidden="true">Step 1</div>
+                  <div class="flow-step-visual" aria-hidden="true"><svg viewBox="0 0 64 64"><path d="M18 21h28a6 6 0 0 1 6 6v16a6 6 0 0 1-6 6H18a6 6 0 0 1-6-6V27a6 6 0 0 1 6-6Z"/><path d="M21 31h20M21 40h12"/><path d="M43 39l3 3 6-8"/></svg></div>
+                  <div class="flow-step-copy"><strong>选择合适套餐</strong><p>按使用频率选择入门、日常或畅享。</p></div>
+                </article>
+                <div class="flow-step-arrow" aria-hidden="true">→</div>
+                <article class="flow-timeline-item">
+                  <div class="flow-step-label" aria-hidden="true">Step 2</div>
+                  <div class="flow-step-visual" aria-hidden="true"><svg viewBox="0 0 64 64"><rect x="18" y="14" width="28" height="36" rx="7"/><path d="M24 24h16M24 32h16M24 40h10"/><path d="M43 38h9M48 33l5 5-5 5"/></svg></div>
+                  <div class="flow-step-copy"><strong>复制订阅链接</strong><p>开通后复制你的快速上手。</p></div>
+                </article>
+                <div class="flow-step-arrow" aria-hidden="true">→</div>
+                <article class="flow-timeline-item">
+                  <div class="flow-step-label" aria-hidden="true">Step 3</div>
+                  <div class="flow-step-visual" aria-hidden="true"><svg viewBox="0 0 64 64"><rect x="38" y="10" width="15" height="42" rx="7"/><rect x="11" y="18" width="22" height="28" rx="7"/><path d="M21 32h21"/><path d="M36 26l7 6-7 6"/></svg></div>
+                  <div class="flow-step-copy"><strong>导入客户端连接</strong><p>导入客户端后同步节点即可使用。</p></div>
+                </article>
+              </div>
+            </div>
+          </section>
+
+          <section class="guest-final-cta guest-module-inner" aria-label="登录注册入口">
+            <div class="guest-final-copy">
+              <strong><span>登录购买套餐</span><span>复制订阅即可使用</span></strong>
+              <p>选好套餐，把订阅导入客户端，就能连接节点。</p>
+            </div>
+            <div class="guest-final-actions">
+              <button type="button" data-open-auth="login">登录 / 注册</button>
+            </div>
+          </section>
+        </section>
         <section id="checkoutView" class="view checkout-workspace hidden">
           <div class="page-heading">
-            <div><p class="eyebrow">CHECKOUT</p><h1>确认购买</h1><p>继续沿用余额购买流程，不接入新的支付网关。</p></div>
-            <button type="button" class="ghost" data-view="storefront">返回商城</button>
+            <div><p class="eyebrow">确认订单</p><h1>确认购买</h1><p>使用账户余额扣款，确认后立即开通当前套餐。</p></div>
+            <button type="button" class="ghost" data-view="home">返回首页</button>
           </div>
           <div class="checkout-layout">
             <section class="panel checkout-summary">
@@ -111,10 +235,10 @@
               </dl>
             </section>
             <section class="panel checkout-confirm">
-              <div class="form-intro"><h2>余额扣款开通</h2><p>点击确认后将从当前余额扣款，并立即调用原套餐开通流程。</p></div>
+              <div class="form-intro"><h2>余额扣款开通</h2><p>确认后会扣除余额，并更新你的订阅链接和套餐用量。</p></div>
               <button id="checkoutPurchaseBtn" type="button">确认购买并开通</button>
-              <button type="button" class="ghost" data-view="account">进入仪表盘</button>
-              <p class="form-note">余额不足时请先在个人中心或订阅页使用充值卡充值。</p>
+              <button type="button" class="ghost" data-view="account">进入我的订阅</button>
+              <p class="form-note">余额不足时，请先到「我的余额」充值。</p>
             </section>
           </div>
         </section>
@@ -122,85 +246,117 @@
         <section id="successView" class="view success-workspace hidden">
           <div class="success-panel">
             <span class="success-mark" aria-hidden="true">✓</span>
-            <p class="eyebrow">PURCHASE COMPLETE</p>
+            <p class="eyebrow">购买完成</p>
             <h1>购买成功</h1>
             <p id="successPlanName">套餐已开通</p>
             <p id="successMessage" class="meta">订阅链接与用量信息已经更新。</p>
             <div class="success-actions">
-              <button type="button" data-view="account">进入仪表盘</button>
-              <button type="button" class="ghost" data-view="storefront">继续选购</button>
+              <button type="button" data-view="account">进入我的订阅</button>
+              <button type="button" class="ghost" data-view="home">继续查看套餐</button>
             </div>
           </div>
         </section>
 
         <section id="nodeStatusView" class="view node-status-workspace hidden">
           <div class="page-heading">
-            <div><p class="eyebrow">NODE STATUS</p><h1>可用节点</h1><p>展示当前已启用节点的可用状态、延迟和倍率。</p></div>
+            <div><h1>可用节点</h1><p>查看可用情况、延迟和最近检测。</p></div>
             <button type="button" class="ghost" data-refresh-node-status>刷新状态</button>
           </div>
-          <div id="nodeStatusList" class="node-status-list" aria-live="polite"></div>
+          <div id="nodeStatusList" class="node-status-list node-status-table" aria-live="polite"></div>
         </section>
 
         <section id="guideView" class="view guide-workspace hidden">
-          <div class="page-heading"><div><p class="eyebrow">GUIDE</p><h1>使用教程</h1><p>按设备选择教程。第一次使用也没关系，跟着步骤复制订阅、导入客户端即可。</p></div></div>
+          <div class="page-heading guide-page-heading"><div><h1>按设备查看导入教程</h1></div></div>
           <div id="publicTutorialList" class="tutorial-list" aria-live="polite"></div>
-          <div class="guide-grid">
-            <article class="panel guide-card"><span>01</span><h2>复制订阅</h2><p>开通商品后进入“仪表盘”，优先复制推荐订阅链接；遇到客户端不识别时再选择其他格式。</p></article>
-            <article class="panel guide-card"><span>02</span><h2>导入客户端</h2><p>Clash Verge / Mihomo 推荐使用 Clash 链接；Shadowrocket、v2rayNG、Hiddify 推荐使用通用 Base64。</p></article>
-            <article class="panel guide-card"><span>03</span><h2>检查节点</h2><p>连接前可先查看节点状态页，确认节点可用、延迟正常，并了解套餐倍率。</p></article>
-            <article class="panel guide-card"><span>FAQ</span><h2>常见问题</h2><p>余额不足请先充值；订阅导入失败时复制另一种格式；账号异常可在工单页提交问题。</p></article>
-          </div>
         </section>
 
         <section id="accountView" class="view account-workspace hidden">
-          <div class="page-heading">
-            <div><p class="eyebrow">DASHBOARD</p><h1>仪表盘</h1><p id="accountStatus">正在读取账号状态…</p></div>
-            <button type="button" data-copy-recommended-sub>复制推荐订阅</button>
+          <div class="account-hero-panel subscription-hero-panel">
+            <div class="account-hero-copy">
+              <p class="eyebrow">我的订阅</p>
+              <h1>订阅管理</h1>
+              <p id="accountStatus">正在读取账号状态…</p>
+            </div>
+            <div class="account-hero-actions">
+              <button type="button" data-view="storefront">购买套餐</button>
+              <button type="button" class="ghost" data-view="nodeStatus">可用节点</button>
+              <button type="button" class="ghost checkin-icon-action" data-checkin aria-label="签到" title="签到">签到</button>
+            </div>
           </div>
-          <div class="metric-grid">
-            <div class="metric balance-metric"><span>账户余额</span><strong id="balanceText">¥0.00</strong></div>
-            <div class="metric"><span>套餐总量</span><strong id="quotaText">-</strong></div>
-            <div class="metric"><span>已使用</span><strong id="usedText">-</strong></div>
-            <div class="metric"><span>剩余流量</span><strong id="remainText">-</strong></div>
-            <div class="metric"><span>到期时间</span><strong id="expireText">-</strong></div>
+          <div class="account-section-title subscription-section-title">
+            <div>
+              <h2>我的套餐</h2>
+            </div>
           </div>
-          <div class="account-grid">
-            <form id="rechargeForm" class="panel recharge-panel">
-              <div class="form-intro"><h2>充值余额</h2><p>输入管理员发放的一次性充值卡。</p></div>
+          <div class="account-overview-grid">
+            <section class="subscription-status-card my-plan-card">
+              <div class="subscription-status-head">
+                <span>我的套餐</span>
+                <strong id="dashboardPlanName">-</strong>
+              </div>
+              <div class="traffic-meter" aria-hidden="true"><span id="trafficMeterBar"></span></div>
+              <div class="subscription-status-stats">
+                <div><span>剩余流量</span><strong id="remainText">-</strong></div>
+                <div><span>已使用</span><strong id="usedText">-</strong></div>
+                <div><span>总流量</span><strong id="quotaText">-</strong></div>
+                <div><span>到期时间</span><strong id="expireText">-</strong></div>
+              </div>
+            </section>
+            <aside class="account-side-panel account-checkin-column">
+              <section id="checkinPanel" class="checkin-panel compact-checkin-panel">
+                <div class="checkin-head"><div><h2>签到</h2><p id="checkinStatus">正在读取签到状态…</p></div><button type="button" data-checkin>签到</button></div>
+                <div id="checkinRecentList" class="checkin-recent-list"><span class="meta">暂无签到记录</span></div>
+              </section>
+            </aside>
+          </div>
+          <div class="subscription-block multi-subscription subscription-console connection-console">
+            <div class="subscription-console-copy">
+              <h2>连接配置</h2>
+              <button type="button" class="ghost tutorial-entry-button" data-view="guide">查看导入教程</button>
+            </div>
+            <div class="device-copy-shell">
+              <div class="device-copy-tabs" aria-label="按设备选择客户端">
+                <button type="button" class="active" data-device-copy-tab="windows">Windows</button>
+                <button type="button" data-device-copy-tab="macos">macOS</button>
+                <button type="button" data-device-copy-tab="ios">iOS</button>
+                <button type="button" data-device-copy-tab="android">Android</button>
+              </div>
+              <section class="subscription-copy-panel" aria-labelledby="subscriptionCopyTitle">
+                <strong id="subscriptionCopyTitle">按设备选择对应客户端</strong>
+                <!-- Clash Verge / Mihomo（支持 VLESS；旧版 Clash 可能不兼容） -->
+                <div class="subscription-formats device-copy-list">
+                  <label data-device-copy-panel="windows"><span>Clash Verge</span><small>Windows 推荐</small><span class="copy-field"><input id="subscriptionUrl" data-sub-format="clash" readonly><button type="button" data-copy-sub="clash">复制</button></span></label>
+                  <label data-device-copy-panel="macos"><span>Clash Verge</span><small>macOS 推荐</small><span class="copy-field"><input id="macosSubscriptionUrl" data-sub-format="macos-clash" readonly><button type="button" data-copy-sub="macos-clash">复制</button></span></label>
+                  <label data-device-copy-panel="ios"><span>Shadowrocket</span><small>iPhone / iPad</small><span class="copy-field"><input id="base64SubscriptionUrl" data-sub-format="base64" readonly><button type="button" data-copy-sub="base64">复制</button></span></label>
+                  <label data-device-copy-panel="android"><span>v2rayNG / Hiddify</span><small>Android 推荐</small><span class="copy-field"><input id="androidSubscriptionUrl" data-sub-format="android-base64" readonly><button type="button" data-copy-sub="android-base64">复制</button></span></label>
+                  <label data-device-copy-panel="windows macos ios android"><span>sing-box</span><small>多平台备用</small><span class="copy-field"><input id="singboxSubscriptionUrl" data-sub-format="singbox" readonly><button type="button" data-copy-sub="singbox">复制</button></span></label>
+                </div>
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <section id="balanceView" class="view balance-workspace hidden">
+          <div class="balance-hero-panel">
+            <div class="balance-hero-copy">
+              <h1>我的余额</h1>
+              <p>充值后可用于购买套餐和续费。</p>
+            </div>
+            <div class="balance-amount-card" aria-label="账户余额">
+              <strong id="balanceText">¥0.00</strong>
+            </div>
+          </div>
+          <div class="balance-grid recharge-workspace">
+            <form id="rechargeForm" class="panel recharge-panel featured-recharge-panel">
+              <div class="form-intro"><h2>充值入口</h2><p>输入充值卡密，到账后可用于购买套餐。</p></div>
               <label>充值卡密<input name="code" autocomplete="off" placeholder="HXY-XXXX-XXXX-XXXX" required></label>
               <button type="submit">立即充值</button>
             </form>
             <div class="panel transaction-panel">
-              <div class="form-intro"><h2>余额记录</h2><p>最近的充值、购买和管理员调整。</p></div>
+              <div class="form-intro"><h2>余额记录</h2><p>充值、购买和调整记录会显示在这里。</p></div>
               <div id="balanceTransactions" class="transaction-list"><span class="meta">暂无记录</span></div>
             </div>
           </div>
-          <div class="subscription-block multi-subscription">
-            <div><h2>订阅链接</h2><p>推荐优先复制 Clash 链接。其他格式保留给特定客户端，避免新手在多个入口之间反复选择。</p></div>
-            <div class="subscription-formats">
-              <label><span>Clash Verge / Mihomo（支持 VLESS；旧版 Clash 可能不兼容）</span><span class="copy-field"><input id="subscriptionUrl" data-sub-format="clash" readonly><button type="button" data-copy-sub="clash">复制 Clash</button></span></label>
-              <label><span>通用 Base64（v2rayNG、Shadowrocket、Hiddify）</span><span class="copy-field"><input id="base64SubscriptionUrl" data-sub-format="base64" readonly><button type="button" data-copy-sub="base64">复制 Base64</button></span></label>
-              <label><span>sing-box（macOS、Android、iOS）</span><span class="copy-field"><input id="singboxSubscriptionUrl" data-sub-format="singbox" readonly><button type="button" data-copy-sub="singbox">复制 sing-box</button></span></label>
-            </div>
-            <div class="client-import-panel">
-              <div class="client-import-copy"><h3>一键导入</h3><p>选择客户端尝试直接打开；如果系统没有响应，请复制上方订阅链接手动导入。</p></div>
-              <div class="client-import-grid">
-                <button type="button" class="client-import-button" data-import-client="clash-verge"><span>Clash Verge</span><small>推荐</small></button>
-                <button type="button" class="client-import-button" data-import-client="mihomo"><span>Mihomo</span><small>Clash Meta</small></button>
-                <button type="button" class="client-import-button" data-import-client="clash"><span>Clash</span><small>通用</small></button>
-                <button type="button" class="client-import-button" data-import-client="shadowrocket"><span>Shadowrocket</span><small>iOS</small></button>
-                <button type="button" class="client-import-button" data-import-client="singbox"><span>sing-box</span><small>多平台</small></button>
-                <button type="button" class="client-import-button" data-import-client="v2rayng"><span>v2rayNG</span><small>Android</small></button>
-                <button type="button" class="client-import-button" data-import-client="hiddify"><span>Hiddify</span><small>通用</small></button>
-              </div>
-            </div>
-          </div>
-          <section id="checkinPanel" class="panel checkin-panel">
-            <div class="form-intro"><h2>每日签到</h2><p>已开通有效套餐后，每天可领取一次流量奖励。领取后会直接加到当前套餐总量里。</p></div>
-            <div id="checkinStatus" class="checkin-status-card">正在读取签到状态…</div>
-            <button type="button" data-checkin>立即签到</button>
-            <div id="checkinRecentList" class="checkin-recent-list"><span class="meta">暂无签到记录</span></div>
-          </section>
         </section>
 
         <section id="profileView" class="view profile-workspace hidden">
@@ -214,28 +370,31 @@
           </div>
 
           <div class="profile-list">
-            <details class="panel profile-panel" open>
-              <summary><span>基本信息</span><small>账号资料与头像展示</small></summary>
-              <dl class="profile-field-list">
-                <div><dt>邮箱账号</dt><dd id="profileEmail">-</dd></div>
-                <div><dt>创建时间</dt><dd id="profileCreatedAt">-</dd></div>
-              </dl>
-              <label class="avatar-upload-button">
-                修改头像
-                <input id="profileAvatarInput" type="file" accept="image/*">
-              </label>
-            </details>
-
-            <details class="panel profile-panel">
-              <summary><span>通知设置</span><small>本机保存提醒偏好</small></summary>
-              <label class="profile-switch"><input id="expireReminderToggle" type="checkbox" data-profile-setting="expireReminder">到期提醒</label>
-              <label class="profile-switch"><input id="trafficReminderToggle" type="checkbox" data-profile-setting="trafficReminder">流量提醒</label>
-            </details>
-
-            <details class="panel profile-panel session-profile-panel">
-              <summary><span>账号会话</span><small>退出当前设备上的登录状态</small></summary>
-              <button id="logoutBtn" type="button" class="ghost danger hidden">退出登录</button>
-            </details>
+            <section class="panel profile-panel profile-info-panel" aria-labelledby="profileInfoTitle">
+              <div class="profile-info-main">
+                <div class="profile-info-copy">
+                  <span class="profile-kicker">账号信息</span>
+                  <h2 id="profileInfoTitle">账号资料</h2>
+                  <p id="profileEmail">-</p>
+                  <span class="profile-created-meta" hidden>创建时间 <b id="profileCreatedAt">-</b></span>
+                </div>
+                <div class="profile-action-cluster">
+                  <details class="profile-notification-menu">
+                    <summary aria-label="通知设置">通知</summary>
+                    <div class="profile-notification-popover">
+                      <strong>通知设置</strong>
+                      <label class="profile-switch"><input id="expireReminderToggle" type="checkbox" data-profile-setting="expireReminder">到期提醒</label>
+                      <label class="profile-switch"><input id="trafficReminderToggle" type="checkbox" data-profile-setting="trafficReminder">流量提醒</label>
+                    </div>
+                  </details>
+                  <label class="avatar-upload-button">
+                    修改头像
+                    <input id="profileAvatarInput" type="file" accept="image/*">
+                  </label>
+                  <button id="logoutBtn" type="button" class="ghost danger hidden">退出登录</button>
+                </div>
+              </div>
+            </section>
 
             <form id="profileGiftCardForm" class="panel profile-panel gift-card-panel">
               <div class="form-intro"><h2>礼品卡兑换</h2><p>输入礼品卡卡密，兑换后余额会立即入账。</p></div>
@@ -245,7 +404,7 @@
             </form>
 
             <form id="profilePasswordForm" class="panel profile-panel password-panel">
-              <div class="form-intro"><h2>安全设置</h2><p>修改当前登录账号密码。</p></div>
+              <div class="form-intro"><h2>安全设置</h2><p>修改当前登录密码。</p></div>
               <label>当前密码<input name="current_password" type="password" autocomplete="current-password" required></label>
               <label>新密码<input name="new_password" type="password" autocomplete="new-password" minlength="6" required></label>
               <label>确认新密码<input name="confirm_password" type="password" autocomplete="new-password" minlength="6" required></label>
@@ -316,7 +475,7 @@
           </div>
           <div class="tickets-layout">
             <form id="ticketForm" class="panel ticket-form user-only hidden">
-              <div class="form-intro"><h2>新建工单</h2><p>请描述问题、设备和大致出现时间。</p></div>
+              <div class="form-intro"><h2>新建工单</h2></div>
               <label>标题<input name="subject" maxlength="120" placeholder="例如：香港 A 节点不可用" required></label>
               <label>问题描述<textarea name="message" rows="6" maxlength="2000" placeholder="请尽量提供客户端、节点名、报错截图文字等信息" required></textarea></label>
               <button type="submit">提交工单</button>
@@ -420,27 +579,27 @@
     </div>
 
     <nav id="mobileNav" class="mobile-nav" aria-label="移动端导航">
-      <button type="button" class="active" data-view="storefront"><span>商城</span></button>
-      <button type="button" data-view="nodeStatus"><span>节点</span></button>
-      <button type="button" data-view="guide"><span>教程</span></button>
-      <button type="button" class="user-only hidden" data-view="account"><span>仪表盘</span></button>
-      <button type="button" class="user-only hidden" data-view="tickets"><span>工单</span></button>
+      <button type="button" class="active" data-view="storefront"><span>套餐中心</span></button>
+      <button type="button" class="user-only hidden" data-view="account"><span class="nav-label-main">我的订阅</span><span class="nav-legacy-label" aria-hidden="true"><span>仪表盘</span></span></button>
+      <button type="button" class="user-only hidden" data-view="balance"><span>我的余额</span></button>
+      <button type="button" data-view="nodeStatus"><span>可用节点</span></button>
+      <button type="button" data-view="guide"><span>导入教程</span></button>
+      <button type="button" class="user-only hidden" data-view="tickets"><span>工单帮助</span></button>
       <button type="button" class="admin-only hidden" data-view="admin"><span>用户</span></button>
-      <button type="button" class="admin-only hidden" data-view="tickets"><span>工单</span></button>
       <button type="button" class="admin-only hidden" data-view="rechargeCards"><span>充值卡</span></button>
       <button type="button" class="admin-only hidden" data-view="nodes"><span>节点</span></button>
       <button type="button" class="admin-only hidden" data-view="settings"><span>配置</span></button>
+      <button type="button" class="admin-only hidden" data-view="tickets"><span>工单帮助</span></button>
     </nav>
 
     <dialog id="authDialog" class="auth-dialog" aria-labelledby="authTitle">
       <div class="auth-shell">
         <button type="button" class="dialog-close" data-close-auth aria-label="关闭">×</button>
         <div class="auth-brand">
-          <p class="eyebrow">WELCOME TO</p>
-          <h2 id="authTitle">黑心云账号</h2>
-          <p id="authContext">登录后继续管理你的订阅。</p>
+          <h2 id="authTitle">登录黑心云</h2>
+          <p id="authContext">输入邮箱和密码，继续购买套餐。</p>
         </div>
-        <div class="auth-tabs" role="tablist" aria-label="账号操作">
+        <div class="auth-tabs" role="tablist" aria-label="账号操作" data-auth-tabs>
           <button type="button" class="active" role="tab" aria-selected="true" data-auth-tab="login">登录</button>
           <button type="button" role="tab" aria-selected="false" data-auth-tab="register">注册</button>
         </div>
@@ -448,18 +607,18 @@
           <label>邮箱<input name="email" type="email" autocomplete="email" placeholder="name@example.com" required></label>
           <label>密码<span class="password-field"><input name="password" type="password" autocomplete="current-password" required><button type="button" class="password-toggle" data-toggle-password>显示</button></span></label>
           <button type="submit" class="wide-button">登录并继续</button>
-          <p class="auth-help-line">忘记密码？<button type="button" class="link-button" data-auth-tab="forgot">点击这里处理</button></p>
+          <p class="auth-help-line"><button type="button" class="link-button" data-auth-tab="forgot">忘记密码</button></p>
         </form>
         <form id="registerForm" class="auth-form hidden" data-auth-panel="register">
           <label>邮箱<input name="email" type="email" autocomplete="email" placeholder="name@example.com" required></label>
           <label>密码<span class="password-field"><input name="password" type="password" autocomplete="new-password" minlength="6" required><button type="button" class="password-toggle" data-toggle-password>显示</button></span></label>
-          <p class="form-note">至少 6 位字符。注册成功后会自动登录。</p>
+          <p class="form-note">密码至少 6 位。</p>
           <button type="submit" class="wide-button">创建账号并继续</button>
         </form>
         <div id="forgotPasswordPanel" class="auth-form hidden forgot-password-panel" data-auth-panel="forgot">
-          <div class="form-intro"><h2>找回密码</h2><p>当前未配置邮件验证码。请提交账号信息后联系管理员在后台处理重置。</p></div>
+          <div class="form-intro"><h2>账号邮箱</h2></div>
           <label>账号邮箱<input type="email" autocomplete="email" placeholder="name@example.com"></label>
-          <p class="form-note">为了安全，系统不会在这里直接修改密码；后续配置 SMTP 后可扩展邮件验证码或重置链接。</p>
+          <p class="form-note">提交后联系管理员确认账号信息。</p>
           <button type="button" class="wide-button ghost" data-auth-tab="login">返回登录</button>
         </div>
       </div>

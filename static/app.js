@@ -107,6 +107,25 @@ function formatMoney(cents) {
   return `¥${(Number(cents || 0) / 100).toFixed(2)}`;
 }
 
+function formatPlanQuota(value) {
+  const bytes = Number(value || 0);
+  const gb = bytes / 1024 / 1024 / 1024;
+  if (!Number.isFinite(gb) || gb <= 0) return "0GB";
+  return `${gb % 1 === 0 ? gb.toFixed(0) : gb.toFixed(1)}GB`;
+}
+
+
+const DEFAULT_STORE_PLANS = [
+  { id: "default-entry", name: "入门套餐", quota_bytes: 30 * 1024 ** 3, duration_days: 30, price_cents: 990, enabled: true, product_type: "subscription", description: "轻量使用，适合偶尔连接。", is_default_plan: true },
+  { id: "default-daily", name: "日常套餐", quota_bytes: 100 * 1024 ** 3, duration_days: 30, price_cents: 1990, enabled: true, product_type: "subscription", description: "日常使用，兼顾多设备连接。", is_default_plan: true },
+  { id: "default-premium", name: "畅享套餐", quota_bytes: 300 * 1024 ** 3, duration_days: 30, price_cents: 3990, enabled: true, product_type: "subscription", description: "高频使用，流量空间更充足。", is_default_plan: true },
+];
+
+function purchasablePlans() {
+  const enabledPlans = state.plans.filter((plan) => plan.enabled !== false && (plan.product_type || "subscription") === "subscription");
+  return enabledPlans.length ? enabledPlans : DEFAULT_STORE_PLANS;
+}
+
 function priceYuan(plan) {
   return (Number(plan.price_cents || 0) / 100).toFixed(2);
 }
@@ -150,24 +169,55 @@ function ticketStatusText(status) {
 
 function productTypeLabel(type) {
   return {
-    subscription: "套餐 · 时长 + 流量",
+    subscription: "套餐 · 流量 + 时长",
     traffic_pack: "流量包 · 不限时长",
     time_pack: "时长包 · 延长有效期",
     reset_pack: "流量重置包",
-  }[type] || "套餐 · 时长 + 流量";
+  }[type] || "套餐 · 流量 + 时长";
 }
 
 function productRuleText(plan) {
   const type = plan?.product_type || "subscription";
   const quota = formatBytes(plan?.quota_bytes || 0);
   const days = Number(plan?.duration_days || 0);
-  return {
-    subscription: "购买后会立即成为当前套餐，包含 " + quota + " 流量和 " + days + " 天有效期；如果已有套餐，旧套餐剩余流量和时长会放弃。",
-    traffic_pack: "购买后只增加 " + quota + " 流量，不改变当前套餐到期时间；需要先有有效套餐。",
-    time_pack: "购买后只延长 " + days + " 天有效期，不增加流量；需要先有有效套餐。",
-    reset_pack: "购买后清空本周期已用流量，不增加总量，也不延长到期时间；需要先有有效套餐。",
-  }[type] || "购买后会按商品规则立即处理。";
+  if (type === "traffic_pack") return quota + " 流量包";
+  if (type === "time_pack") return days + " 天加时包";
+  if (type === "reset_pack") return "重置已用流量";
+  return quota + " · " + days + " 天";
 }
+
+
+function planQuotaGb(plan) {
+  return Number(plan?.quota_bytes || 0) / 1024 / 1024 / 1024;
+}
+
+function planTier(plan, index = 0) {
+  if ((plan?.product_type || "subscription") !== "subscription") return null;
+  const name = String(plan?.name || "");
+  const gb = planQuotaGb(plan);
+  if (/入门|轻度|30\s*G/i.test(name) || Math.abs(gb - 30) < 0.5) {
+    return { name: "入门套餐", description: "偶尔使用，轻量上网。" };
+  }
+  if (/日常|中度|100\s*G/i.test(name) || Math.abs(gb - 100) < 0.5) {
+    return { name: "日常套餐", description: "日常使用，多设备更省心。" };
+  }
+  if (/畅享|重度|300\s*G/i.test(name) || Math.abs(gb - 300) < 0.5) {
+    return { name: "畅享套餐", description: "高频使用，流量更充足。" };
+  }
+  return null;
+}
+
+
+function planDisplayName(plan, index = 0) {
+  return planTier(plan, index)?.name || plan?.name || "未选择套餐";
+}
+
+function planDisplayDescription(plan, index = 0) {
+  const custom = String(plan?.description || "").trim();
+  if (custom && !/轻度|中度|重度|高速|稳定|节点|购买后|旧套餐/.test(custom)) return custom;
+  return planTier(plan, index)?.description || "按需开通，订阅自动更新。";
+}
+
 
 function nodeStatusOptions(current = "unknown") {
   return ["online", "degraded", "offline", "maintenance", "unknown"]
@@ -500,7 +550,8 @@ async function handleDynamicSubmit(event) {
 }
 
 function setView(view) {
-  if (["account", "profile", "tickets", "checkout"].includes(view) && !state.me) {
+  if (!state.me && view === "home") view = "storefront";
+  if (["account", "balance", "profile", "tickets", "checkout"].includes(view) && !state.me) {
     openAuth("login");
     return;
   }
@@ -612,6 +663,12 @@ async function refreshBalanceTransactions() {
 function renderAuth() {
   const loggedIn = Boolean(state.me);
   const isAdmin = state.me?.role === "admin";
+  document.body.classList.toggle("is-guest", !loggedIn);
+  document.body.classList.toggle("is-authed", loggedIn);
+  const plansTitle = $("#plansTitle");
+  const plansSubtitle = $("#plansSubtitle");
+  if (plansTitle) plansTitle.textContent = loggedIn ? "购买套餐" : "先选一个合适的套餐";
+  if (plansSubtitle) plansSubtitle.textContent = loggedIn ? "三款套餐均可购买，余额充足后可直接开通。" : "轻度使用、日常上网或高频连接，按流量需求选择即可。";
   loadProfilePrefs();
   $("#logoutBtn").classList.toggle("hidden", !loggedIn);
   $$(".admin-only").forEach((node) => node.classList.toggle("hidden", !isAdmin));
@@ -638,20 +695,33 @@ function renderAuth() {
   }
 
   const statusMessages = {
-    unsubscribed: "尚未购买套餐，可充值余额后在商城即时开通。",
-    pending: "该账号来自旧版审核流程，可直接购买新套餐。",
-    active: "账号已开通，可按客户端复制对应订阅链接。",
+    unsubscribed: "当前未开通套餐，请先充值余额并选择套餐。",
+    pending: "账号可用，可选择套餐完成开通。",
+    active: "套餐可用，复制对应订阅后导入客户端。",
     disabled: "账号已停用，如有疑问请联系管理员。",
   };
+  const currentPlan = state.plans.find((item) => Number(item.id) === Number(state.me?.plan_id));
+  const quotaBytes = Number(state.me.quota_bytes || 0);
+  const usedBytes = Number(state.me.used_bytes || 0);
+  const remainBytes = Number(state.me.remaining_bytes || 0);
+  const usagePct = quotaBytes > 0 ? Math.max(0, Math.min(100, usedBytes / quotaBytes * 100)) : 0;
   $("#accountStatus").textContent = statusMessages[state.me.status] || "账号状态未知。";
-  $("#quotaText").textContent = formatBytes(state.me.quota_bytes);
-  $("#usedText").textContent = formatBytes(state.me.used_bytes);
-  $("#remainText").textContent = formatBytes(state.me.remaining_bytes);
+  $("#dashboardPlanName").textContent = planDisplayName(currentPlan);
+  $("#quotaText").textContent = formatBytes(quotaBytes);
+  $("#usedText").textContent = formatBytes(usedBytes);
+  $("#remainText").textContent = formatBytes(remainBytes);
   $("#expireText").textContent = toDate(state.me.expire_at);
   $("#balanceText").textContent = formatMoney(state.me.balance_cents);
+  const trafficMeterBar = $("#trafficMeterBar");
+  if (trafficMeterBar) trafficMeterBar.style.width = `${usagePct}%`;
   const clashSubscriptionUrl = subscriptionUrlForFormat("clash");
   $("#subscriptionUrl").value = clashSubscriptionUrl;
-  $("#base64SubscriptionUrl").value = subscriptionUrlForFormat("base64");
+  const macosSubscriptionUrl = $("#macosSubscriptionUrl");
+  if (macosSubscriptionUrl) macosSubscriptionUrl.value = clashSubscriptionUrl;
+  const base64Url = subscriptionUrlForFormat("base64");
+  $("#base64SubscriptionUrl").value = base64Url;
+  const androidSubscriptionUrl = $("#androidSubscriptionUrl");
+  if (androidSubscriptionUrl) androidSubscriptionUrl.value = base64Url;
   $("#singboxSubscriptionUrl").value = subscriptionUrlForFormat("singbox");
   $$("[data-copy-recommended-sub]").forEach((button) => {
     button.disabled = state.me.status !== "active" || !clashSubscriptionUrl;
@@ -680,7 +750,7 @@ function renderProfile() {
   const subscriptionUrl = subscriptionUrlForFormat("clash");
   const plan = state.plans.find((item) => Number(item.id) === Number(state.me?.plan_id));
   $("#profileSubscriptionInfo").textContent = loggedIn
-    ? `${plan?.name || "当前未选择套餐"} · ${formatBytes(state.me.quota_bytes)} 总量`
+    ? `${planDisplayName(plan)} · ${formatBytes(state.me.quota_bytes)} 总量`
     : "登录后展示订阅信息。";
   $("#profileSubStatus").textContent = loggedIn ? statusText(state.me.status) : "-";
   $("#profileSubExpire").textContent = loggedIn ? toDate(state.me.expire_at) : "-";
@@ -704,45 +774,39 @@ function renderTransactions() {
     : '<span class="meta">暂无余额记录</span>';
 }
 
-function planAction(plan) {
-  if (!state.me) return { label: "登录购买", disabled: false };
+function planPurchaseAction(plan) {
+  if (!state.me) return { label: "选择套餐", disabled: false };
   if (state.me.role === "admin") return { label: "管理员不可购买", disabled: true };
   if (state.me.status === "disabled") return { label: "账号已停用", disabled: true };
-  if (Number(state.me.balance_cents || 0) < Number(plan.price_cents || 0)) return { label: "余额不足", disabled: true };
-  return { label: "购买此商品", disabled: false };
+  if (plan.is_default_plan) return { label: "请先配置套餐", disabled: true };
+  if (Number(state.me.balance_cents || 0) < Number(plan.price_cents || 0)) return { label: "先充值后订阅", disabled: true };
+  return { label: "立即购买", disabled: false };
 }
 
 function renderPlanCatalog() {
   const catalog = $("#planCatalog");
   if (!catalog) return;
-  if (!state.plans.length) {
-    catalog.innerHTML = '<div class="empty-state">当前暂无可申请套餐，请稍后再来。</div>';
-    return;
-  }
-  catalog.innerHTML = state.plans
-    .filter((plan) => plan.enabled !== false)
+  const plansToRender = purchasablePlans();
+  const planNotes = ["适合轻度连接，流量够用不浪费。", "适合日常上网，兼顾手机与电脑。", "适合高频使用，流量空间更充足。"];
+  const planDescriptions = {
+    "入门套餐": "适合轻度连接，流量够用不浪费。",
+    "日常套餐": "适合日常上网，兼顾手机与电脑。",
+    "畅享套餐": "适合高频使用，流量空间更充足。",
+  };
+  catalog.innerHTML = plansToRender
     .map((plan, index) => {
-      const action = planAction(plan);
-      const type = plan.product_type || "subscription";
-      const category = plan.category || "套餐";
-      const description = plan.description || "适合按需开通，购买前请确认商品规则。";
-      const notice = plan.purchase_notice || productRuleText(plan);
-      return `<article class="plan-card product-card product-type-${escapeHtml(type)}">
-        <div>
-          <span class="plan-index">${escapeHtml(category)} · PRODUCT ${String(index + 1).padStart(2, "0")}</span>
-          <span class="product-type-badge">${escapeHtml(productTypeLabel(type))}</span>
-          <h3>${escapeHtml(plan.name)}</h3>
-          <p class="plan-price">${formatMoney(plan.price_cents)}</p>
-          <p class="plan-quota">${escapeHtml(formatBytes(plan.quota_bytes))}</p>
-          <p class="plan-description">${escapeHtml(description)}</p>
-          <div class="plan-meta">
-            <span>${Number(plan.duration_days || 0)} 天有效</span>
-            <span>${escapeHtml(category)}</span>
-          </div>
-          <p class="plan-rule">${escapeHtml(productRuleText(plan))}</p>
-          <p class="plan-notice">${escapeHtml(notice)}</p>
-        </div>
-        <button type="button" data-apply-plan="${plan.id}" ${action.disabled ? "disabled" : ""}>${action.label}</button>
+      const action = planPurchaseAction(plan);
+      const displayName = planDisplayName(plan);
+      const description = planDescriptions[displayName] || planNotes[index] || planDisplayDescription(plan) || "按需选择适合自己的方案。";
+      const badge = index === 1 && (plan.product_type || "subscription") === "subscription" ? '<span class="plan-badge">推荐</span>' : '';
+      const buttonClass = action.disabled ? "ghost" : "";
+      const applyAttr = plan.is_default_plan ? 'data-open-auth="login"' : `data-apply-plan="${plan.id}"`;
+      return `<article class="plan-card compact-plan-card product-type-${escapeHtml(plan.product_type || "subscription")}">
+        <div class="plan-topline"><div><h3>${escapeHtml(displayName)}</h3></div>${badge}</div>
+        <p class="plan-description">${escapeHtml(description)}</p>
+        <div class="plan-price">${formatMoney(plan.price_cents)}</div>
+        <div class="plan-facts"><span><strong>${escapeHtml(formatPlanQuota(plan.quota_bytes))}</strong><small>可用流量</small></span><span><strong>${escapeHtml(plan.duration_days || 0)}天</strong><small>有效期</small></span></div>
+        <button type="button" class="${buttonClass}" ${applyAttr} ${action.disabled ? "disabled" : ""}>${action.label}</button>
       </article>`;
     })
     .join("");
@@ -808,7 +872,7 @@ function renderUsers() {
       <td><strong>${user.is_priority ? "★ " : ""}${escapeHtml(user.email)}</strong>${user.admin_note ? `<small class="user-note-preview">${escapeHtml(user.admin_note)}</small>` : ""}</td>
       <td><span class="status ${user.status}">${statusText(user.status)}</span></td>
       <td>${user.role === "admin" ? "管理员" : "普通用户"}</td>
-      <td>${escapeHtml(plan?.name || "未选择")}</td>
+      <td>${escapeHtml(plan ? planDisplayName(plan) : "未选择")}</td>
       <td>${formatMoney(user.balance_cents)}</td>
       <td>${formatBytes(user.used_bytes)} / ${formatBytes(user.quota_bytes)}</td>
       <td>${toDate(user.expire_at)}</td>
@@ -821,7 +885,7 @@ function renderUsers() {
     const expanded = state.expandedUsers.has(Number(user.id));
     return `<article class="user-card ${user.is_priority ? "priority-user" : ""}">
       <header><h3>${user.is_priority ? "★ " : ""}${escapeHtml(user.email)}</h3><span class="status ${user.status}">${statusText(user.status)}</span></header>
-      <div class="user-card-meta"><span>${escapeHtml(plan?.name || "未选择套餐")}</span><span>${formatMoney(user.balance_cents)}</span><span>${formatBytes(user.used_bytes)} / ${formatBytes(user.quota_bytes)}</span></div>
+      <div class="user-card-meta"><span>${escapeHtml(plan ? planDisplayName(plan) : "未选择套餐")}</span><span>${formatMoney(user.balance_cents)}</span><span>${formatBytes(user.used_bytes)} / ${formatBytes(user.quota_bytes)}</span></div>
       <button class="ghost" data-toggle-user="${user.id}" aria-expanded="${expanded}">${expanded ? "收起详情" : "展开详情"}</button>
       ${expanded ? userDetail(user) : ""}
     </article>`;
@@ -944,13 +1008,34 @@ function escapeHtml(value) {
 }
 
 function showAuthTab(tab) {
+  const normalizedTab = ["login", "register", "forgot"].includes(tab) ? tab : "login";
+  const isForgot = normalizedTab === "forgot";
+  const copy = {
+    login: {
+      title: "登录 / 注册",
+      context: state.pendingPlanId ? "登录后即可继续购买所选套餐。" : "购买套餐、复制订阅、查看节点状态，都从这里开始。",
+    },
+    register: {
+      title: "创建账号",
+      context: state.pendingPlanId ? "创建账号后即可继续购买所选套餐。" : "创建账号后即可购买套餐并获取专属订阅。",
+    },
+    forgot: {
+      title: "找回密码",
+      context: "输入注册邮箱，提交后联系管理员确认。",
+    },
+  };
+  const authTitle = $("#authTitle");
+  const authContext = $("#authContext");
+  if (authTitle) authTitle.textContent = copy[normalizedTab].title;
+  if (authContext) authContext.textContent = copy[normalizedTab].context;
+  $("[data-auth-tabs]")?.classList.toggle("hidden", isForgot);
   $$('[data-auth-tab]').forEach((button) => {
-    const active = button.dataset.authTab === tab;
+    const active = !isForgot && button.dataset.authTab === normalizedTab;
     button.classList.toggle("active", active);
     button.setAttribute("aria-selected", String(active));
   });
-  $$('[data-auth-panel]').forEach((panel) => panel.classList.toggle("hidden", panel.dataset.authPanel !== tab));
-  window.setTimeout(() => $(`[data-auth-panel="${tab}"] input`)?.focus(), 0);
+  $$('[data-auth-panel]').forEach((panel) => panel.classList.toggle("hidden", panel.dataset.authPanel !== normalizedTab));
+  window.setTimeout(() => $(`[data-auth-panel="${normalizedTab}"] input`)?.focus(), 0);
 }
 
 function openModalDialog(dialog) {
@@ -990,7 +1075,6 @@ function openAuth(tab = "login") {
   }
   state.authReturnFocus = document.activeElement;
   showAuthTab(tab);
-  $("#authContext").textContent = state.pendingPlanId ? "登录或注册后，将继续购买所选套餐。" : "登录后继续管理你的订阅。";
   const dialog = $("#authDialog");
   openModalDialog(dialog);
 }
@@ -1038,24 +1122,24 @@ function renderNodes() {
 function renderCheckout() {
   const plan = findPendingPlan();
   const balance = Number(state.me?.balance_cents || 0);
-  if ($("#checkoutPlanName")) $("#checkoutPlanName").textContent = plan?.name || "未选择套餐";
+  if ($("#checkoutPlanName")) $("#checkoutPlanName").textContent = plan ? planDisplayName(plan) : "未选择套餐";
   if ($("#checkoutPlanPrice")) $("#checkoutPlanPrice").textContent = plan ? formatMoney(plan.price_cents) : "¥0.00";
   if ($("#checkoutPlanQuota")) $("#checkoutPlanQuota").textContent = plan ? formatBytes(plan.quota_bytes) : "-";
   if ($("#checkoutPlanDuration")) $("#checkoutPlanDuration").textContent = plan ? plan.duration_days + " 天" : "-";
   if ($("#checkoutBalanceText")) $("#checkoutBalanceText").textContent = state.me ? formatMoney(balance) : "请先登录";
   if ($(".checkout-label")) $(".checkout-label").textContent = plan ? productTypeLabel(plan.product_type) : "所选商品";
-  if ($(".checkout-confirm .form-intro p")) $(".checkout-confirm .form-intro p").textContent = plan ? (plan.purchase_notice || productRuleText(plan)) : "点击确认后将从当前余额扣款，并立即处理所选商品。";
+  if ($(".checkout-confirm .form-intro p")) $(".checkout-confirm .form-intro p").textContent = plan ? (plan.purchase_notice || productRuleText(plan)) : "确认后将从当前余额扣款，并立即更新订阅和套餐用量。";
   const button = $("#checkoutPurchaseBtn");
   if (!button) return;
   const disabledReason = !plan ? "请先选择套餐" : !state.me ? "请先登录" : state.me.role === "admin" ? "管理员不可购买" : state.me.status === "disabled" ? "账号已停用" : balance < Number(plan.price_cents || 0) ? "余额不足" : "";
   button.disabled = Boolean(disabledReason);
-  button.textContent = disabledReason || "确认购买此商品";
+  button.textContent = disabledReason || "确认购买并开通";
 }
 
 function renderSuccess() {
-  if ($("#successPlanName")) $("#successPlanName").textContent = state.lastPurchase?.plan?.name ? "已处理：" + state.lastPurchase.plan.name : "商品已处理";
+  if ($("#successPlanName")) $("#successPlanName").textContent = state.lastPurchase?.plan ? "已处理：" + planDisplayName(state.lastPurchase.plan) : "商品已处理";
   if ($("#successMessage")) {
-    const message = state.lastPurchase ? provisioningNotice("处理结果", state.lastPurchase.provisioning, state.lastPurchase.errors) : "订阅链接与用量信息已经更新。";
+    const message = state.lastPurchase ? provisioningNotice("开通结果", state.lastPurchase.provisioning, state.lastPurchase.errors) : "订阅链接和用量信息已经更新。";
     $("#successMessage").textContent = message;
   }
 }
@@ -1063,9 +1147,21 @@ function renderSuccess() {
 function renderNodeStatuses() {
   const target = $("#nodeStatusList");
   if (!target) return;
-  target.innerHTML = state.nodeStatuses.length
-    ? state.nodeStatuses.map((node) => '<article class="node-status-card"><header><strong>' + escapeHtml(node.name) + '</strong><span class="status ' + escapeHtml(node.status || "unknown") + '">' + nodeStatusText(node.status) + '</span></header><dl><div><dt>延迟</dt><dd>' + (node.latency_ms == null ? "-" : escapeHtml(node.latency_ms) + "ms") + '</dd></div><div><dt>倍率</dt><dd>' + escapeHtml(node.rate ?? "1") + 'x</dd></div><div><dt>标签/地区</dt><dd>' + escapeHtml(formatTags(node.tags)) + '</dd></div><div><dt>最近检测</dt><dd>' + toDateTime(node.last_checked_at) + '</dd></div></dl></article>').join("")
-    : '<div class="empty-state">当前暂无可展示节点。</div>';
+  if (!state.nodeStatuses.length) {
+    target.innerHTML = '<div class="empty-state">当前暂无可展示节点。</div>';
+    return;
+  }
+  const counts = state.nodeStatuses.reduce((acc, node) => {
+    const key = node.status || "unknown";
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const summary = '<div class="node-status-summary"><span><b>' + state.nodeStatuses.length + '</b> 全部节点</span><span><b>' + (counts.online || 0) + '</b> 可用</span><span><b>' + (counts.degraded || 0) + '</b> 波动</span><span><b>' + ((counts.maintenance || 0) + (counts.offline || 0)) + '</b> 维护/离线</span></div>';
+  const rows = state.nodeStatuses.map((node) => {
+    const latency = node.latency_ms == null ? "-" : escapeHtml(node.latency_ms) + "ms";
+    return '<article class="node-status-row"><div class="node-status-main"><span class="node-dot ' + escapeHtml(node.status || "unknown") + '"></span><div><strong>' + escapeHtml(node.name) + '</strong><small>' + escapeHtml(formatTags(node.tags)) + '</small></div></div><span class="status ' + escapeHtml(node.status || "unknown") + '">' + nodeStatusText(node.status) + '</span><div><small>延迟</small><b>' + latency + '</b></div><div><small>倍率</small><b>' + escapeHtml(node.rate ?? "1") + 'x</b></div><div><small>检测</small><b>' + toDateTime(node.last_checked_at) + '</b></div></article>';
+  }).join("");
+  target.innerHTML = summary + '<div class="node-status-rows">' + rows + '</div>';
 }
 
 function tutorialContentHtml(content) {
@@ -1082,14 +1178,70 @@ function groupedTutorials(tutorials) {
 }
 
 function renderTutorials() {
-  const target = $("#publicTutorialList");
+  const target = $("#publicTutorialList") || $("#tutorialList");
   if (!target) return;
-  const groups = groupedTutorials(state.tutorials);
-  const platforms = Object.keys(groups);
-  target.innerHTML = platforms.length
-    ? platforms.map((platform) => '<section class="tutorial-platform-group"><h2>' + escapeHtml(platform) + '</h2>' + groups[platform].map((item) => '<article class="tutorial-card"><div><span class="product-type-badge">' + escapeHtml(item.platform || "通用") + '</span><h3>' + escapeHtml(item.title) + '</h3><p>' + tutorialContentHtml(item.content) + '</p></div>' + (item.image_url ? '<img class="tutorial-image" src="' + escapeHtml(item.image_url) + '" alt="' + escapeHtml(item.title) + '">' : '') + '</article>').join("") + '</section>').join("")
-    : '<div class="empty-state">管理员还没有发布教程。你可以先复制订阅链接，按客户端的“导入订阅/URL”入口添加。</div>';
+  const platforms = [
+    { key: "windows", name: "Windows", desc: "桌面端推荐 Clash Verge，也可使用 Hiddify 或 sing-box。", tools: ["Clash Verge", "Hiddify", "sing-box"] },
+    { key: "macos", name: "macOS", desc: "macOS 可使用 Clash Verge、Hiddify 或 sing-box 导入订阅。", tools: ["Clash Verge", "Hiddify", "sing-box"] },
+    { key: "ios", name: "iOS", desc: "iPhone / iPad 推荐 Shadowrocket，也可使用 Hiddify 或 sing-box。", tools: ["Shadowrocket", "Hiddify", "sing-box"] },
+    { key: "android", name: "Android", desc: "Android 推荐 v2rayNG，也可使用 Hiddify 或 sing-box。", tools: ["v2rayNG", "Hiddify", "sing-box"] },
+  ];
+  const toolInfo = {
+    "Clash Verge": { logo: "/assets/clients/clash-verge.svg", format: "Clash 订阅", steps: ["下载并打开 Clash Verge", "复制 Clash 订阅链接", "在订阅页面粘贴链接并更新"] },
+    "Shadowrocket": { logo: "/assets/clients/shadowrocket.svg", format: "Base64 订阅", steps: ["打开 Shadowrocket", "点击右上角添加订阅", "粘贴链接后保存并更新"] },
+    "v2rayNG": { logo: "/assets/clients/v2rayng.svg", format: "Base64 订阅", steps: ["打开 v2rayNG", "从剪贴板导入订阅", "更新订阅并选择节点"] },
+    "sing-box": { logo: "/assets/clients/sing-box.svg", format: "sing-box 订阅", steps: ["打开 sing-box", "添加远程配置", "保存后刷新配置"] },
+    "Hiddify": { logo: "/assets/clients/hiddify.svg", format: "Base64 订阅", steps: ["打开 Hiddify", "选择从链接导入", "更新配置后连接节点"] },
+  };
+  const platformHtml = `<div class="tutorial-platform-shell">
+    <div class="tutorial-platform-tabs" role="tablist" aria-label="选择设备系统">${platforms.map((platform, index) => `
+      <button type="button" class="tutorial-platform-tab${index === 0 ? " active" : ""}" data-platform-tab="${platform.key}">
+        <span>${escapeHtml(platform.name)}</span>
+        <small>${escapeHtml(platform.tools.join(" / "))}</small>
+      </button>`).join("")}
+    </div>
+    <div class="tutorial-platform-panels">${platforms.map((platform, index) => `
+      <section class="tutorial-platform-panel${index === 0 ? " active" : ""}" data-platform-panel="${platform.key}">
+        <div class="tutorial-panel-copy">
+          <h2>${escapeHtml(platform.name)} 客户端</h2>
+          <p>${escapeHtml(platform.desc)}</p>
+        </div>
+        <div class="tutorial-tool-grid">${platform.tools.map((tool) => {
+          const info = toolInfo[tool];
+          return `<article class="tutorial-tool-card">
+            <div class="tutorial-tool-head"><img src="${escapeHtml(info.logo)}" alt="${escapeHtml(tool)} logo"><div><strong>${escapeHtml(tool)}</strong><span>${escapeHtml(info.format)}</span></div></div>
+            <ol>${info.steps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}</ol>
+          </article>`;
+        }).join("")}</div>
+      </section>`).join("")}
+    </div>
+  </div>`;
+  const faqHtml = `<section class="guide-faq-panel guide-help-panel">
+    <h2>导入提示</h2>
+    <div class="guide-help-grid">
+      <p><strong>链接选择</strong><span>Clash Verge 使用 Clash 订阅，sing-box 使用 sing-box 订阅，其他客户端优先使用 Base64 订阅。</span></p>
+      <p><strong>节点为空</strong><span>先在客户端内更新订阅；仍为空时，重新复制订阅链接再导入。</span></p>
+      <p><strong>连接异常</strong><span>先切换其他节点测试；如果仍不可用，可提交工单并附上客户端截图。</span></p>
+    </div>
+  </section>`;
+  const extraTutorials = state.tutorials || [];
+  const extraHtml = extraTutorials.length
+    ? '<div class="tutorial-extra-list"><h2>补充教程</h2>' + extraTutorials.map((item) => `
+      <article class="tutorial-card">
+        <div><span>${escapeHtml(item.platform || "补充说明")}</span><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.description || "")}</p></div>
+        ${item.image_url ? `<img class="tutorial-image" src="${escapeHtml(item.image_url)}" alt="${escapeHtml(item.title)}">` : ""}
+      </article>`).join("") + '</div>'
+    : "";
+  target.innerHTML = platformHtml + faqHtml + extraHtml;
+  target.querySelectorAll("[data-platform-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const platform = button.dataset.platformTab;
+      target.querySelectorAll("[data-platform-tab]").forEach((tab) => tab.classList.toggle("active", tab === button));
+      target.querySelectorAll("[data-platform-panel]").forEach((panel) => panel.classList.toggle("active", panel.dataset.platformPanel === platform));
+    });
+  });
 }
+
 
 function renderAdminTutorials() {
   const target = $("#tutorialList");
@@ -1185,7 +1337,12 @@ async function revealRechargeCard(id) {
 }
 
 async function requestPurchase(planId) {
-  state.pendingPlanId = Number(planId);
+  const plan = state.plans.find((item) => String(item.id) === String(planId));
+  if (!plan) {
+    openAuth("login");
+    return;
+  }
+  state.pendingPlanId = Number(plan.id);
   if (!state.me) {
     openAuth("login");
     return;
@@ -1228,6 +1385,16 @@ async function finishAuthentication(user) {
 async function handleDocumentClick(event) {
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
+  const rechargeFocusButton = target.closest("[data-focus-recharge]");
+  if (rechargeFocusButton) {
+    setView("balance");
+    window.setTimeout(() => {
+      const form = $("#rechargeForm");
+      form?.scrollIntoView({ behavior: "smooth", block: "center" });
+      form?.querySelector('input[name="code"]')?.focus({ preventScroll: true });
+    }, 90);
+    return;
+  }
   const viewButton = target.closest("[data-view]");
   if (viewButton) {
     setView(viewButton.dataset.view);
@@ -1254,9 +1421,22 @@ async function handleDocumentClick(event) {
     passwordToggle.textContent = input.type === "password" ? "显示" : "隐藏";
     return;
   }
+  const guestScrollButton = target.closest("[data-scroll-guest]");
+  if (guestScrollButton) {
+    const sectionMap = {
+      hero: "#guestHero",
+      plans: "#plansSection",
+      clients: "#guestClients",
+      flow: "#guestFlow",
+    };
+    const selector = sectionMap[guestScrollButton.dataset.scrollGuest] || "#guestHero";
+    setView("storefront");
+    window.setTimeout(() => $(selector)?.scrollIntoView({ behavior: "smooth", block: "start" }), 90);
+    return;
+  }
   if (target.closest("[data-scroll-plans]")) {
     setView("storefront");
-    window.setTimeout(() => $("#plansSection")?.scrollIntoView({ behavior: "smooth" }), 0);
+    window.setTimeout(() => $("#plansSection")?.scrollIntoView({ behavior: "smooth", block: "start" }), 90);
     return;
   }
   const applyButton = target.closest("[data-apply-plan]");
@@ -1308,13 +1488,23 @@ async function handleDocumentClick(event) {
 
   const copySubscription = target.closest("[data-copy-sub]");
   if (copySubscription) {
-    await copyTextFromInput($(`[data-sub-format="${copySubscription.dataset.copySub}"]`));
+    const format = copySubscription.dataset.copySub;
+    const fallbackFormat = format === "macos-clash" ? "clash" : format === "android-base64" ? "base64" : format;
+    await copyTextFromInput($(`[data-sub-format="${format}"]`) || $(`[data-sub-format="${fallbackFormat}"]`));
     showNotice("订阅链接已复制");
+    return;
+  }
+
+  const deviceCopyTab = target.closest("[data-device-copy-tab]");
+  if (deviceCopyTab) {
+    const shell = deviceCopyTab.closest(".device-copy-shell");
+    shell?.querySelectorAll("[data-device-copy-tab]").forEach((btn) => btn.classList.toggle("active", btn === deviceCopyTab));
+    if (shell) shell.dataset.activeDevice = deviceCopyTab.dataset.deviceCopyTab;
     return;
   }
   if (target.closest("[data-copy-recommended-sub]")) {
     await copyTextFromInput($("#subscriptionUrl"));
-    showNotice("推荐订阅链接已复制");
+    showNotice("订阅链接已复制");
     return;
   }
   if (target.closest("[data-copy-profile-sub]")) {

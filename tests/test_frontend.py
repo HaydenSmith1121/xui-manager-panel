@@ -41,6 +41,14 @@ class FrontendTests(unittest.TestCase):
         self.assertIn("data-apply-plan", app_js)
         self.assertIn('/api/purchases', app_js)
         self.assertIn("submitPurchase", app_js)
+        self.assertIn('DEFAULT_STORE_PLANS', app_js)
+        self.assertIn('入门套餐', app_js)
+        self.assertIn('日常套餐', app_js)
+        self.assertIn('畅享套餐', app_js)
+        self.assertNotIn('暂无可购买套餐，请联系管理员。', app_js)
+        self.assertIn('id="plansSubtitle"', index_html)
+        self.assertIn('购买套餐', app_js)
+        self.assertIn('三款套餐均可购买，余额充足后可直接开通。', app_js)
 
     def test_home_and_storefront_are_separate_views(self):
         root = Path(__file__).resolve().parents[1]
@@ -53,13 +61,13 @@ class FrontendTests(unittest.TestCase):
         desktop_nav_start = index_html.index('<nav class="nav">')
         desktop_nav = index_html[desktop_nav_start:index_html.index('</nav>', desktop_nav_start)]
         self.assertNotIn('data-view="home"><span>首页</span>', desktop_nav)
-        self.assertIn('data-view="storefront"><span>商城</span>', desktop_nav)
+        self.assertIn('data-view="storefront"><span>套餐中心</span>', desktop_nav)
         self.assertIn('class="brand brand-button" type="button" data-view="home"', index_html)
 
         mobile_nav_start = index_html.index('id="mobileNav"')
         mobile_nav = index_html[mobile_nav_start:index_html.index('</nav>', mobile_nav_start)]
         self.assertNotIn('data-view="home"><span>首页</span>', mobile_nav)
-        self.assertIn('data-view="storefront"><span>商城</span>', mobile_nav)
+        self.assertIn('data-view="storefront"><span>套餐中心</span>', mobile_nav)
 
         self.assertIn('view: "home"', app_js)
         self.assertIn('view = "home"', app_js)
@@ -80,6 +88,8 @@ class FrontendTests(unittest.TestCase):
         self.assertIn(".user-card-list", app_css)
         self.assertIn("position: fixed", app_css)
         self.assertIn("@media (max-width: 920px)", app_css)
+        self.assertIn("Authenticated storefront: only show purchasable plans", app_css)
+        self.assertIn("body.is-authed #guestHero", app_css)
         self.assertIn("prefers-reduced-motion: reduce", app_css)
         self.assertIn("loadingCount", app_js)
         self.assertIn("600", app_js)
